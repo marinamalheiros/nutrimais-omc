@@ -93,7 +93,7 @@ if df_ref is not None and dict_turmas:
     modo = st.sidebar.radio("Ver:", ["Ficha Individual", "Relatório Coletivo"])
 
     if modo == "Ficha Individual":
-        st.header(f"Evolução: {aluno_nome}")
+        st.header(f"{aluno_nome}")
         cols = st.columns(4)
         medicoes = []
 
@@ -177,3 +177,4 @@ if df_ref is not None and dict_turmas:
             
             st.markdown("### 📋 Tabela de Dados da Turma")
             st.dataframe(df_turma[['aluno', 'genero', 'peso', 'altura', 'Status']], use_container_width=True, hide_index=True)
+
