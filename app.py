@@ -1,119 +1,108 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
+import plotly.express as px
 
 # Configuração da Página
 st.set_page_config(page_title="NutriGestão - Marina Mendonça", layout="wide")
 
-# --- 1. FUNÇÃO DE PADRONIZAÇÃO ULTRA-ROBUSTA ---
+# --- 1. PADRONIZAÇÃO DE COLUNAS ---
 def preparar_dataframe(df):
-    # 1. Limpeza básica: minúsculas, remove espaços e acentos comuns
-    df.columns = [
-        str(c).lower().replace('ê', 'e').replace('é', 'e').replace('í', 'i').strip() 
-        for c in df.columns
-    ]
-    
-    # 2. Mapeamento inteligente para colunas essenciais
-    mapeamento = {}
+    df.columns = [str(c).lower().replace('ê', 'e').replace('í', 'i').strip() for c in df.columns]
+    mapeamento = {
+        'aluno': 'aluno', 'matri': 'matricula', 'genero': 'genero', 
+        'sexo': 'genero', 'peso': 'peso', 'altura': 'altura', 'idade': 'idade'
+    }
+    # Renomeia se encontrar parte do nome
     for col in df.columns:
-        if 'aluno' in col: mapeamento[col] = 'aluno'
-        if 'matri' in col: mapeamento[col] = 'matricula'
-        if 'genero' in col or 'sexo' in col: mapeamento[col] = 'genero'
-        if 'peso' in col: mapeamento[col] = 'peso'
-        if 'altura' in col or 'estatura' in col: mapeamento[col] = 'altura'
-        if 'idade' in col: mapeamento[col] = 'idade'
-    
-    df = df.rename(columns=mapeamento)
-    
-    # 3. Garantia: Se a coluna 'genero' ainda não existir, cria uma vazia para não dar erro
-    if 'genero' not in df.columns:
-        df['genero'] = 'M' # Valor padrão preventivo
-        
+        for chave, valor in mapeamento.items():
+            if chave in col:
+                df = df.rename(columns={col: valor})
     return df
 
-# --- 2. CARREGAMENTO DAS REFERÊNCIAS ---
+# --- 2. CARREGAMENTO DA BASE (EXCEL COM ABAS) ---
 @st.cache_data
-def carregar_referencias():
+def carregar_dados_escola():
+    caminho_referencia = "referencias_oms_completo.csv"
+    caminho_alunos = "DADOS - OMC.xlsx"
+    
     try:
-        # Resolve o erro "Expected 17 fields, saw 18" ignorando linhas más
-        df = pd.read_csv(
-            "referencias_oms_completo.csv", 
-            sep=',', 
-            on_bad_lines='skip', 
-            encoding='utf-8'
-        )
-        return preparar_dataframe(df)
+        df_ref = pd.read_csv(caminho_referencia, sep=',', on_bad_lines='skip')
+        df_ref = preparar_dataframe(df_ref)
+        
+        # Lê todas as abas do Excel de uma vez
+        dict_turmas = pd.read_excel(caminho_alunos, sheet_name=None)
+        # Padroniza cada aba
+        for aba in dict_turmas:
+            dict_turmas[aba] = preparar_dataframe(dict_turmas[aba])
+            
+        return df_ref, dict_turmas
     except Exception as e:
-        st.error(f"Erro ao carregar ficheiro de referência: {e}")
-        # Retorna uma tabela mínima para o gráfico não quebrar totalmente
-        return pd.DataFrame(columns=['genero', 'estatura', 'z_0', 'z_2pos', 'z_2neg'])
+        st.error(f"Erro ao carregar arquivos locais: {e}")
+        return pd.DataFrame(), {}
 
-def calcular_imc(peso, altura_cm):
+# --- 3. LÓGICA DE CÁLCULO ---
+def calcular_imc(peso, altura):
     try:
-        alt_m = float(altura_cm) / 100
+        alt_m = float(altura) / 100
         return round(float(peso) / (alt_m ** 2), 2) if alt_m > 0 else 0
     except: return 0
 
 # --- INTERFACE ---
-st.title("🍎 NutriGestão Escolar")
+df_ref, dict_turmas = carregar_dados_escola()
 
-try:
-    df_ref = carregar_referencias()
-    uploaded_file = st.sidebar.file_uploader("Subir Planilha da Turma", type=["xlsx", "csv"])
+if dict_turmas:
+    st.sidebar.header("🏫 Gestão Escolar")
+    turma_selecionada = st.sidebar.selectbox("Selecione a Turma:", list(dict_turmas.keys()))
+    df_atual = dict_turmas[turma_selecionada]
 
-    if uploaded_file:
-        # Carregamento do ficheiro da escola
-        df_alunos = pd.read_excel(uploaded_file) if uploaded_file.name.endswith('.xlsx') else pd.read_csv(uploaded_file)
-        df_alunos = preparar_dataframe(df_alunos)
+    tipo_analise = st.sidebar.radio("Tipo de Análise:", ["Individual por Aluno", "Panorama da Turma"])
+
+    if tipo_analise == "Individual por Aluno":
+        # --- FICHA INDIVIDUAL ---
+        aluno_nome = st.sidebar.selectbox("Selecione o Aluno:", sorted(df_atual['aluno'].unique()))
+        dados = df_atual[df_atual['aluno'] == aluno_nome].iloc[0]
+
+        st.header(f"Ficha: {aluno_nome} ({turma_selecionada})")
         
-        if 'aluno' in df_alunos.columns:
-            aluno_nome = st.sidebar.selectbox("Selecione o Aluno:", df_alunos['aluno'].unique())
-            dados = df_alunos[df_alunos['aluno'] == aluno_nome].iloc[0]
+        # Edição instantânea
+        c1, c2, c3 = st.sidebar.columns(3)
+        edit_p = st.sidebar.number_input("Peso:", value=float(dados.get('peso', 0) or 0))
+        edit_a = st.sidebar.number_input("Altura:", value=float(dados.get('altura', 0) or 0))
+        edit_g = st.sidebar.selectbox("Gênero:", ["M", "F"], index=0 if "M" in str(dados.get('genero', 'M')).upper() else 1)
 
-            # --- 3. SEÇÃO DE EDIÇÃO ---
-            st.sidebar.markdown("---")
-            st.sidebar.subheader("📝 Editar Dados")
-            
-            # Valores iniciais protegidos contra erros
-            p_ini = float(dados['peso']) if 'peso' in dados and pd.notnull(dados['peso']) else 0.0
-            a_ini = float(dados['altura']) if 'altura' in dados and pd.notnull(dados['altura']) else 0.0
-            g_ini = str(dados['genero']).upper().strip() if 'genero' in dados else "M"
+        # Gráfico Individual
+        curva = df_ref[df_ref['genero'].str.upper() == edit_g]
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=curva['estatura'], y=curva['z_0'], name='Ideal (Z-0)', line=dict(color='green', width=3)))
+        fig.add_trace(go.Scatter(x=curva['estatura'], y=curva['z_2pos'], name='Z+2 (Sobrepeso)', line=dict(color='orange', dash='dot')))
+        fig.add_trace(go.Scatter(x=curva['estatura'], y=curva['z_2neg'], name='Z-2 (Baixo Peso)', line=dict(color='red', dash='dot')))
+        
+        imc = calcular_imc(edit_p, edit_a)
+        fig.add_trace(go.Scatter(x=[edit_a], y=[edit_p], mode='markers+text', text=[f"IMC {imc}"], 
+                                 marker=dict(size=15, color='black', symbol='star'), name='Aluno'))
+        
+        st.plotly_chart(fig, use_container_width=True)
 
-            edit_peso = st.sidebar.number_input("Peso (kg):", value=p_ini, step=0.1)
-            edit_altura = st.sidebar.number_input("Altura (cm):", value=a_ini, step=0.1)
-            edit_gen = st.sidebar.selectbox("Gênero:", ["M", "F"], index=0 if "M" in g_ini else 1)
-
-            # --- 4. EXIBIÇÃO ---
-            st.header(f"Ficha: {aluno_nome}")
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Matrícula", dados.get('matricula', 'N/A'))
-            c2.metric("Idade", dados.get('idade', 'N/A'))
-            c3.metric("Peso", f"{edit_peso} kg")
-            c4.metric("Altura", f"{edit_altura} cm")
-
-            # --- 5. GRÁFICO ---
-            st.subheader("Análise Comparativa (OMS)")
-            curva = df_ref[df_ref['genero'].str.upper() == edit_gen]
-            
-            if not curva.empty:
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(x=curva['estatura'], y=curva['z_2pos'], name='Z+2 (Sobrepeso)', line=dict(color='orange', dash='dot')))
-                fig.add_trace(go.Scatter(x=curva['estatura'], y=curva['z_0'], name='Z-0 (Mediana)', line=dict(color='green', width=3)))
-                fig.add_trace(go.Scatter(x=curva['estatura'], y=curva['z_2neg'], name='Z-2 (Baixo Peso)', line=dict(color='red', dash='dot')))
-                
-                imc = calcular_imc(edit_peso, edit_altura)
-                fig.add_trace(go.Scatter(x=[edit_altura], y=[edit_peso], mode='markers+text', name='Aluno',
-                                         text=[f"IMC: {imc}"], textposition="top center",
-                                         marker=dict(color='black', size=15, symbol='star')))
-                
-                st.plotly_chart(fig, use_container_width=True)
-                st.success(f"IMC: {imc}")
-            else:
-                st.warning("Aguardando dados de referência válidos para gerar o gráfico.")
-        else:
-            st.error("Coluna 'Aluno' não encontrada. Verifique o cabeçalho da sua planilha.")
     else:
-        st.info("💡 Marina, carregue uma planilha (ex: Jardim II) para começar.")
+        # --- PANORAMA DA TURMA ---
+        st.header(f"📊 Panorama Geral: {turma_selecionada}")
+        
+        # Cálculo rápido para a turma
+        df_turma = df_atual.copy()
+        df_turma['imc'] = df_turma.apply(lambda x: calcular_imc(x.get('peso', 0), x.get('altura', 0)), axis=1)
+        
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            st.subheader("Distribuição de Peso x Altura")
+            fig_turma = px.scatter(df_turma, x='altura', y='peso', text='aluno', color='genero',
+                                   title="Alunos da Turma no Espaço Amostral")
+            st.plotly_chart(fig_turma, use_container_width=True)
+            
+        with col2:
+            st.subheader("Lista de Alunos")
+            st.dataframe(df_turma[['aluno', 'peso', 'altura', 'imc']], hide_index=True)
 
-except Exception as e:
-    st.error(f"Ocorreu um erro inesperado: {e}")
+else:
+    st.warning("Garante que o arquivo 'DADOS - OMC.xlsx' está na mesma pasta que este script.")
