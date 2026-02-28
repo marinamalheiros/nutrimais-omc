@@ -20,7 +20,7 @@ def preparar_dataframe(df):
     
     df = df.rename(columns=mapeamento)
     
-    # Conversão numérica rigorosa para evitar erros de cálculo
+    # Conversão numérica rigorosa
     cols_num = ['peso', 'altura', 'z_3neg', 'z_2neg', 'z_1neg', 'z_0', 'z_1pos', 'z_2pos', 'z_3pos']
     for col in df.columns:
         if col in cols_num:
@@ -33,12 +33,10 @@ def classificar_oms(peso, altura, curva_ref):
         if peso <= 0 or altura <= 0 or curva_ref.empty:
             return "Dados Insuficientes", "#808080"
         
-        # Encontra a linha da OMS mais próxima da altura do aluno
         idx = (curva_ref['altura'] - altura).abs().idxmin()
         ref = curva_ref.loc[idx]
         
         p = float(peso)
-        # Lógica de Classificação Solicitada
         if p < ref['z_3neg']: return "Magreza acentuada", "#8B0000"
         elif p < ref['z_2neg']: return "Magreza", "#FF4500"
         elif p < ref['z_1pos']: return "Eutrofia", "#2E8B57"
@@ -46,7 +44,7 @@ def classificar_oms(peso, altura, curva_ref):
         elif p <= ref['z_3pos']: return "Sobrepeso", "#FF8C00"
         else: return "Obesidade", "#FF0000"
     except:
-        return "Erro de Cálculo", "#808080"
+        return "Erro", "#808080"
 
 @st.cache_data
 def carregar_dados():
@@ -60,132 +58,122 @@ def carregar_dados():
         st.error(f"Erro ao carregar arquivos: {e}")
         return None, None
 
-# --- 2. EXECUÇÃO ---
-df_ref, dict_turmas = carregar_dados()
-
-# Título e Subtítulo Principal
+# --- 2. CABEÇALHO ---
 st.title("🍎 Acompanhamento Nutricional - O Mundo da Criança")
 st.markdown("##### pela Nutricionista Marina Malheiros Mendonça - CRN 5 21456 🍐🍒")
 
+df_ref, dict_turmas = carregar_dados()
+
 if df_ref is not None and dict_turmas:
     # --- BARRA LATERAL ---
-    st.sidebar.markdown("### 🥗 Configurações")
-    aba_sel = st.sidebar.selectbox("Selecione a Turma:", list(dict_turmas.keys()))
+    st.sidebar.markdown("### 🥗 Seleção")
+    aba_sel = st.sidebar.selectbox("Turma:", list(dict_turmas.keys()))
     df_atual = dict_turmas[aba_sel]
     
     lista_alunos = sorted(df_atual['aluno'].dropna().unique())
-    aluno_nome = st.sidebar.selectbox("Selecione o Aluno:", lista_alunos)
+    aluno_nome = st.sidebar.selectbox("Aluno:", lista_alunos)
     
-    # Busca dados do aluno para a sidebar
+    # Dados Sidebar
     dados_aluno = df_atual[df_atual['aluno'] == aluno_nome].iloc[0]
     gen_aluno = "M" if "M" in str(dados_aluno.get('genero', 'M')).upper() else "F"
     curva_ref_aluno = df_ref[df_ref['genero'] == gen_aluno]
     
-    # IMC e Classificação na Sidebar (Status Atual da Planilha)
-    p_atual = float(dados_aluno['peso'])
-    a_atual = float(dados_aluno['altura'])
-    status_sidebar, cor_sidebar = classificar_oms(p_atual, a_atual, curva_ref_aluno)
-    imc_sidebar = round(p_atual / ((a_atual/100)**2), 2) if a_atual > 0 else 0
+    p_side = float(dados_aluno['peso'])
+    a_side = float(dados_aluno['altura'])
+    status_side, cor_side = classificar_oms(p_side, a_side, curva_ref_aluno)
+    imc_side = round(p_side / ((a_side/100)**2), 2) if a_side > 0 else 0
     
     st.sidebar.markdown("---")
-    st.sidebar.markdown(f"**Status Atual de {aluno_nome.split()[0]}:**")
-    st.sidebar.metric("IMC Atual", imc_sidebar)
-    st.sidebar.markdown(f"<div style='background-color:{cor_sidebar}; color:white; padding:10px; border-radius:5px; text-align:center; font-weight:bold;'>{status_sidebar}</div>", unsafe_allow_html=True)
+    st.sidebar.markdown(f"**Status Atual:**")
+    st.sidebar.write(f"**{aluno_nome}**") # Nome e Sobrenome completo
+    st.sidebar.metric("IMC Atual", imc_side)
+    st.sidebar.markdown(f"<div style='background-color:{cor_side}; color:white; padding:10px; border-radius:5px; text-align:center; font-weight:bold;'>{status_side}</div>", unsafe_allow_html=True)
     st.sidebar.markdown("---")
     
-    modo = st.sidebar.radio("Navegação:", ["Ficha Individual", "Relatório Coletivo"])
+    modo = st.sidebar.radio("Ver:", ["Ficha Individual", "Relatório Coletivo"])
 
     if modo == "Ficha Individual":
-        st.header(f"Evolução Trimestral: {aluno_nome}")
-        
+        st.header(f"Evolução: {aluno_nome}")
         cols = st.columns(4)
         medicoes = []
 
         for i, nome_tri in enumerate(["1º Tri", "2º Tri", "3º Tri", "4º Tri"]):
             with cols[i]:
                 st.markdown(f"**{nome_tri}**")
-                p_init = float(dados_aluno['peso']) if i == 0 else 0.0
-                a_init = float(dados_aluno['altura']) if i == 0 else 0.0
+                p_v = float(dados_aluno['peso']) if i == 0 else 0.0
+                a_v = float(dados_aluno['altura']) if i == 0 else 0.0
                 
-                p = st.number_input(f"Peso (kg)", value=p_init, key=f"p{i}_{aluno_nome}", step=0.1)
-                a = st.number_input(f"Altura (cm)", value=a_init, key=f"a{i}_{aluno_nome}", step=0.1)
+                p = st.number_input(f"Peso (kg)", value=p_v, key=f"pi{i}_{aluno_nome}", step=0.1)
+                a = st.number_input(f"Altura (cm)", value=a_v, key=f"ai{i}_{aluno_nome}", step=0.1)
                 
                 status, cor = classificar_oms(p, a, curva_ref_aluno)
                 if p > 0 and a > 0:
                     medicoes.append({'tri': i+1, 'p': p, 'a': a, 'status': status, 'cor': cor})
                     st.markdown(f"<p style='color:{cor}; font-weight:bold;'>{status}</p>", unsafe_allow_html=True)
 
-        # --- GRÁFICO INDIVIDUAL ---
         if medicoes:
-            fig = go.Figure()
-            # Ajuste de Zoom
-            alturas_m = [m['a'] for m in medicoes]
-            pesos_m = [m['p'] for m in medicoes]
-            min_x, max_x = min(alturas_m) - 4, max(alturas_m) + 4
-            min_y, max_y = min(pesos_m) - 4, max(pesos_m) + 4
+            fig_ind = go.Figure()
+            alt_m = [m['a'] for m in medicoes]
+            pes_m = [m['p'] for m in medicoes]
+            min_x, max_x = min(alt_m) - 4, max(alt_m) + 4
+            min_y, max_y = min(pes_m) - 4, max(pes_m) + 4
+            c_zoom = curva_ref_aluno[(curva_ref_aluno['altura'] >= min_x) & (curva_ref_aluno['altura'] <= max_x)]
 
-            curva_zoom = curva_ref_aluno[(curva_ref_aluno['altura'] >= min_x) & (curva_ref_aluno['altura'] <= max_x)]
-
-            # Apenas linhas de classificação
             refs = [('z_3pos', 'Obesidade', 'red'), ('z_2pos', 'Sobrepeso', 'orange'), 
                     ('z_1pos', 'Risco Sobrep.', 'yellow'), ('z_0', 'Eutrofia', 'green'), 
                     ('z_2neg', 'Magreza', 'orange'), ('z_3neg', 'Magreza Ac.', 'red')]
             
             for col, lab, color in refs:
-                fig.add_trace(go.Scatter(x=curva_zoom['altura'], y=curva_zoom[col], name=lab, 
-                                         line=dict(color=color, width=2, dash='dot' if '0' not in col else 'solid'),
-                                         mode='lines', hoverinfo='skip'))
+                if col in c_zoom.columns:
+                    fig_ind.add_trace(go.Scatter(x=c_zoom['altura'], y=c_zoom[col], name=lab, 
+                                             line=dict(color=color, width=2, dash='dot' if '0' not in col else 'solid'),
+                                             mode='lines', hoverinfo='skip'))
 
-            # Marcador do aluno
             for m in medicoes:
-                fig.add_trace(go.Scatter(x=[m['a']], y=[m['p']], mode='markers+text', text=[f"T{m['tri']}"],
+                fig_ind.add_trace(go.Scatter(x=[m['a']], y=[m['p']], mode='markers+text', text=[f"T{m['tri']}"],
                                          textposition="top center", marker=dict(size=14, color=m['cor'], line=dict(width=2, color='white')),
                                          name=f"Registro T{m['tri']}"))
 
-            fig.update_layout(xaxis=dict(range=[min_x, max_x], dtick=1, title="Altura (cm)"),
+            fig_ind.update_layout(xaxis=dict(range=[min_x, max_x], dtick=1, title="Altura (cm)"),
                               yaxis=dict(range=[min_y, max_y], dtick=1, title="Peso (kg)"),
                               height=600, template="plotly_white")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig_ind, use_container_width=True)
 
     else:
         # --- RELATÓRIO COLETIVO ---
-        st.header(f"📊 Panorama da Turma: {aba_sel}")
+        st.header(f"📊 Panorama: {aba_sel}")
         df_turma = df_atual[df_atual['peso'] > 0].copy()
         
         if not df_turma.empty:
-            # Classifica todos
             df_turma['Status'] = df_turma.apply(lambda x: classificar_oms(x['peso'], x['altura'], df_ref[df_ref['genero'] == x['genero']])[0], axis=1)
             
-            fig_coletivo = go.Figure()
-            # Limites para o zoom coletivo
+            fig_col = go.Figure()
             min_xc, max_xc = df_turma['altura'].min() - 5, df_turma['altura'].max() + 5
             min_yc, max_yc = df_turma['peso'].min() - 5, df_turma['peso'].max() + 5
             
-            # Referências no coletivo (Baseado no primeiro gênero encontrado ou média)
-            curva_col = df_ref[df_ref['genero'] == gen_aluno] 
-            curva_col_zoom = curva_col[(curva_col['altura'] >= min_xc) & (curva_col['altura'] <= max_xc)]
+            curva_c = df_ref[df_ref['genero'] == gen_aluno] 
+            c_c_zoom = curva_c[(curva_c['altura'] >= min_xc) & (curva_c['altura'] <= max_xc)]
             
             refs = [('z_3pos', 'Obesidade', 'red'), ('z_2pos', 'Sobrepeso', 'orange'), 
                     ('z_1pos', 'Risco Sobrep.', 'yellow'), ('z_0', 'Eutrofia', 'green'), 
                     ('z_2neg', 'Magreza', 'orange'), ('z_3neg', 'Magreza Ac.', 'red')]
             
             for col, lab, color in refs:
-                fig_coletivo.add_trace(go.Scatter(x=curva_col_zoom['altura'], y=curva_col_zoom[col], name=lab, 
-                                                 line=dict(color=color, width=1.5, dash='dash'), mode='lines', hoverinfo='skip'))
+                fig_col.add_trace(go.Scatter(x=c_c_zoom['altura'], y=c_c_zoom[col], name=lab, 
+                                             line=dict(color=color, width=1.5, dash='dash'), mode='lines', hoverinfo='skip'))
 
-            # Pontos dos alunos
             for status, cor in [("Eutrofia", "#2E8B57"), ("Risco de sobrepeso", "#FFD700"), ("Sobrepeso", "#FF8C00"), 
                                 ("Obesidade", "#FF0000"), ("Magreza", "#FF4500"), ("Magreza acentuada", "#8B0000")]:
                 df_f = df_turma[df_turma['Status'] == status]
                 if not df_f.empty:
-                    fig_coletivo.add_trace(go.Scatter(x=df_f['altura'], y=df_f['peso'], mode='markers',
-                                                     name=status, marker=dict(size=12, color=cor),
-                                                     text=df_f['aluno'], hovertemplate="<b>%{text}</b><br>Peso: %{y}kg<br>Alt: %{x}cm"))
+                    fig_col.add_trace(go.Scatter(x=df_f['altura'], y=df_f['peso'], mode='markers',
+                                                 name=status, marker=dict(size=12, color=cor),
+                                                 text=df_f['aluno'], hovertemplate="<b>%{text}</b><br>Peso: %{y}kg<br>Alt: %{x}cm"))
 
-            fig_coletivo.update_layout(xaxis=dict(range=[min_xc, max_xc], dtick=1, title="Altura (cm)"),
-                                       yaxis=dict(range=[min_yc, max_yc], dtick=1, title="Peso (kg)"),
-                                       height=700, template="plotly_white")
-            st.plotly_chart(fig_coletivo, use_container_width=True)
-            fig_turma.update_layout(xaxis=dict(dtick=1), yaxis=dict(dtick=1), template="plotly_white")
-            st.plotly_chart(fig_turma, use_container_width=True)
-
+            fig_col.update_layout(xaxis=dict(range=[min_xc, max_xc], dtick=1, title="Altura (cm)"),
+                                  yaxis=dict(range=[min_yc, max_yc], dtick=1, title="Peso (kg)"),
+                                  height=600, template="plotly_white")
+            st.plotly_chart(fig_col, use_container_width=True)
+            
+            st.markdown("### 📋 Tabela de Dados da Turma")
+            st.dataframe(df_turma[['aluno', 'genero', 'peso', 'altura', 'Status']], use_container_width=True, hide_index=True)
