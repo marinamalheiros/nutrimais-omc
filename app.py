@@ -28,18 +28,23 @@ def preparar_dataframe(df):
     return df
 
 def classificar_oms(peso, altura, curva_ref):
-    if peso <= 0 or altura <= 0 or curva_ref.empty:
-        return "Dados Insuficientes", "gray"
-    
-    # Busca a linha da curva mais próxima da altura do aluno
-    ref = curva_ref.iloc[(curva_ref['altura'] - altura).abs().argsort()[:1]].iloc[0]
-    
-    if peso < ref['z_3neg']: return "Magreza acentuada", "#8B0000" # Vermelho Escuro
-    elif peso < ref['z_2neg']: return "Magreza", "#FF4500" # Laranja Forte
-    elif peso < ref['z_1pos']: return "Eutrofia", "#2E8B57" # Verde Marinho
-    elif peso <= ref['z_2pos']: return "Risco de sobrepeso", "#FFD700" # Amarelo/Ouro
-    elif peso <= ref['z_3pos']: return "Sobrepeso", "#FF8C00" # Laranja Escuro
-    else: return "Obesidade", "#FF0000" # Vermelho Vivo
+    try:
+        if peso <= 0 or altura <= 0 or curva_ref.empty:
+            return "Dados Insuficientes", "gray"
+        
+        # Encontra a linha da OMS mais próxima da altura do aluno
+        idx = (curva_ref['altura'] - altura).abs().idxmin()
+        ref = curva_ref.loc[idx]
+        
+        # Lógica de Classificação solicitada
+        if peso < float(ref['z_3neg']): return "Magreza acentuada", "#8B0000"
+        elif peso < float(ref['z_2neg']): return "Magreza", "#FF4500"
+        elif peso < float(ref['z_1pos']): return "Eutrofia", "#2E8B57"
+        elif peso <= float(ref['z_2pos']): return "Risco de sobrepeso", "#FFD700"
+        elif peso <= float(ref['z_3pos']): return "Sobrepeso", "#FF8C00"
+        else: return "Obesidade", "#FF0000"
+    except:
+        return "Erro de Cálculo", "gray"
 
 def calcular_imc(p, a):
     return round(p / ((a/100)**2), 2) if a > 0 else 0
@@ -47,13 +52,20 @@ def calcular_imc(p, a):
 @st.cache_data
 def carregar_dados():
     try:
+        # Carrega o CSV forçando as colunas Z a serem números
         df_ref = pd.read_csv("referencias_oms_completo.csv", sep=';', decimal=',', on_bad_lines='skip')
         df_ref = preparar_dataframe(df_ref)
+        # Força conversão de todas as colunas Z para float
+        colunas_z = ['z_3neg','z_2neg','z_1neg','z_0','z_1pos','z_2pos','z_3pos']
+        for col in colunas_z:
+            if col in df_ref.columns:
+                df_ref[col] = pd.to_numeric(df_ref[col], errors='coerce')
+        
         dict_turmas = pd.read_excel("DADOS - OMC.xlsx", sheet_name=None)
         turmas = {n: preparar_dataframe(d) for n, d in dict_turmas.items()}
         return df_ref, turmas
     except Exception as e:
-        st.error(f"Erro: {e}"); return None, None
+        st.error(f"Erro ao carregar arquivos: {e}"); return None, None
 
 # --- 2. EXECUÇÃO ---
 df_ref, dict_turmas = carregar_dados()
@@ -71,72 +83,25 @@ if df_ref is not None and dict_turmas:
         
         st.header(f"Acompanhamento Anual: {aluno}")
         
-        # --- SEÇÕES TRIMESTRAIS ---
+        # --- SEÇÕES TRIMESTRAIS EM COLUNAS ---
         cols = st.columns(4)
         medicoes = []
+        curva_aluno = df_ref[df_ref['genero'] == str(dados.get('genero', 'M'))]
         
-        for i, nome_tri in enumerate(["1º Trimestre (Atual)", "2º Trimestre", "3º Trimestre", "4º Trimestre"]):
+        for i, nome_tri in enumerate(["1º Tri", "2º Tri", "3º Tri", "4º Tri"]):
             with cols[i]:
-                st.subheader(nome_tri)
-                # O primeiro trimestre puxa do Excel, os outros são editáveis
-                p_init = float(dados.get('peso', 0) or 0) if i == 0 else 0.0
-                a_init = float(dados.get('altura', 0) or 0) if i == 0 else 0.0
+                st.markdown(f"### {nome_tri}")
+                p_val = float(dados.get('peso', 0) or 0) if i == 0 else 0.0
+                a_val = float(dados.get('altura', 0) or 0) if i == 0 else 0.0
                 
-                p = st.number_input(f"Peso (kg) T{i+1}", value=p_init, key=f"p{i}")
-                a = st.number_input(f"Altura (cm) T{i+1}", value=a_init, key=f"a{i}")
+                p = st.number_input(f"Peso (kg)", value=p_val, key=f"p{i}", step=0.1)
+                a = st.number_input(f"Altura (cm)", value=a_val, key=f"a{i}", step=0.1)
                 
                 imc = calcular_imc(p, a)
-                curva_aluno = df_ref[df_ref['genero'] == str(dados.get('genero', 'M'))]
                 classif, cor = classificar_oms(p, a, curva_aluno)
                 
                 st.metric("IMC", imc)
-                st.markdown(f"**Status:** <span style='color:{cor}'>{classif}</span>", unsafe_allow_html=True)
-                if p > 0: medicoes.append({'trimestre': i+1, 'p': p, 'a': a, 'classif': classif, 'cor': cor})
-
-        # --- GRÁFICO INDIVIDUAL REFORMULADO ---
-        if medicoes:
-            st.markdown("---")
-            st.subheader("Evolução na Curva de Crescimento")
-            
-            fig = go.Figure()
-            # Escala de 1 em 1 para os eixos (Tick 1)
-            min_a = min([m['a'] for m in medicoes]) - 5
-            max_a = max([m['a'] for m in medicoes]) + 5
-            curva_zoom = curva_aluno[(curva_aluno['altura'] >= min_a) & (curva_aluno['altura'] <= max_a)]
-
-            # Linhas de Referência
-            labels = [('z_3pos', 'Obesidade', 'red'), ('z_2pos', 'Sobrepeso', 'orange'), 
-                      ('z_0', 'Eutrofia', 'green'), ('z_2neg', 'Magreza', 'orange'), ('z_3neg', 'Magreza Acent.', 'red')]
-            
-            for col, name, color in labels:
-                fig.add_trace(go.Scatter(x=curva_zoom['altura'], y=curva_zoom[col], name=name, 
-                                         line=dict(color=color, width=1, dash='dash' if '0' not in col else 'solid')))
-
-            # Pontos das 4 aferições
-            for m in medicoes:
-                fig.add_trace(go.Scatter(x=[m['a']], y=[m['p']], mode='markers+text',
-                                         name=f"{m['trimestre']}º Tri", text=[f"T{m['trimestre']}"],
-                                         marker=dict(size=12, color=m['cor'], line=dict(width=2, color='black'))))
-
-            fig.update_layout(xaxis=dict(dtick=1), yaxis=dict(dtick=1), xaxis_title="Altura (cm)", yaxis_title="Peso (kg)")
-            st.plotly_chart(fig, use_container_width=True)
-
-    else:
-        # --- RELATÓRIO COLETIVO ---
-        st.header(f"📊 Relatório Coletivo - {aba_sel}")
-        df_plot = df_atual.dropna(subset=['peso', 'altura']).copy()
-        df_plot = df_plot[(df_plot['peso'] > 0) & (df_plot['altura'] > 0)]
-        
-        if not df_plot.empty:
-            # Aplica a mesma classificação para todos
-            df_plot['Classificação'] = df_plot.apply(lambda x: classificar_oms(x['peso'], x['altura'], df_ref[df_ref['genero'] == x['genero']])[0], axis=1)
-            
-            fig_turma = px.scatter(df_plot, x='altura', y='peso', color='Classificação',
-                                   hover_data=['aluno'], title="Panorama da Turma (1ª Aferição)",
-                                   color_discrete_map={
-                                       "Eutrofia": "#2E8B57", "Risco de sobrepeso": "#FFD700",
-                                       "Sobrepeso": "#FF8C00", "Obesidade": "#FF0000",
-                                       "Magreza": "#FF4500", "Magreza acentuada": "#8B0000"
-                                   })
-            fig_turma.update_layout(xaxis=dict(dtick=1), yaxis=dict(dtick=1))
-            st.plotly_chart(fig_turma, use_container_width=True)
+                st.markdown(f"<div style='background-color:{cor}; color:white; padding:10px; border-radius:5px; text-align:center; font-weight:bold;'>{classif}</div>", unsafe_allow_html=True)
+                
+                if p > 0 and a > 0:
+                    medicoes.append({'tri': i+1, 'p': p, 'a': a, 'classif': class
