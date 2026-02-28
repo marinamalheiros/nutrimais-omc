@@ -8,12 +8,11 @@ st.set_page_config(page_title="NutriGestão - Marina Mendonça", layout="wide")
 
 # --- 1. FUNÇÃO DE PADRONIZAÇÃO DE COLUNAS ---
 def preparar_dataframe(df):
-    colunas_originais = df.columns
     novo_mapeamento = {}
-    
-    for col in colunas_originais:
+    for col in df.columns:
         nome_min = str(col).lower().strip()
         
+        # Mapeamento baseado nos nomes reais encontrados nos seus arquivos
         if 'aluno' in nome_min: novo_mapeamento[col] = 'aluno'
         elif 'matri' in nome_min: novo_mapeamento[col] = 'matricula'
         elif 'idade' in nome_min: novo_mapeamento[col] = 'idade'
@@ -26,39 +25,40 @@ def preparar_dataframe(df):
 
     df = df.rename(columns=novo_mapeamento)
     
+    # Padronização de Gênero para facilitar o filtro
     if 'genero' in df.columns:
-        df['genero'] = df['genero'].astype(str).str.upper().str.strip().fillna('M')
-    else:
-        df['genero'] = 'M'
-        
+        df['genero'] = df['genero'].astype(str).str.upper().str.strip()
+    
     return df
 
-# --- 2. CARREGAMENTO DOS DADOS COM TRATAMENTO DE ERRO DE TOKENIZAÇÃO ---
+# --- 2. CARREGAMENTO DOS DADOS ---
 @st.cache_data
 def carregar_dados():
     try:
-        # SOLUÇÃO PARA O ERRO: sep=',' e on_bad_lines='skip'
-        # Isso faz o Python pular a linha 3 que está com erro em vez de travar o app
+        # Configurações específicas para o seu CSV: delimitador ';' e decimal ','
         df_ref = pd.read_csv(
             "referencias_oms_completo.csv", 
-            sep=',', 
+            sep=';', 
+            decimal=',', 
             on_bad_lines='skip', 
             encoding='utf-8'
         )
         df_ref = preparar_dataframe(df_ref)
         
+        # Carrega a planilha de dados dos alunos
         dict_turmas = pd.read_excel("DADOS - OMC.xlsx", sheet_name=None)
         
         turmas_processadas = {}
         for nome_aba, df_aba in dict_turmas.items():
             df_limpo = preparar_dataframe(df_aba)
+            # Garante que peso e altura sejam números
             df_limpo['peso'] = pd.to_numeric(df_limpo['peso'], errors='coerce')
             df_limpo['altura'] = pd.to_numeric(df_limpo['altura'], errors='coerce')
             turmas_processadas[nome_aba] = df_limpo
             
         return df_ref, turmas_processadas
     except Exception as e:
-        st.error(f"Erro crítico ao ler os arquivos: {e}")
+        st.error(f"Erro ao carregar arquivos: {e}")
         return None, None
 
 def calcular_imc(peso, altura_cm):
@@ -89,8 +89,9 @@ if df_ref is not None and dict_turmas:
         p_val = st.sidebar.number_input("Peso (kg):", value=float(dados_aluno.get('peso', 0) or 0), step=0.1)
         a_val = st.sidebar.number_input("Altura (cm):", value=float(dados_aluno.get('altura', 0) or 0), step=0.1)
         
-        gen_orig = str(dados_aluno.get('genero', 'M')).upper()
-        sexo_sel = st.sidebar.selectbox("Gênero:", ["Masculino", "Feminino"], index=0 if 'M' in gen_orig else 1)
+        # Detecta o gênero do aluno para selecionar no gráfico
+        gen_detectado = str(dados_aluno.get('genero', 'M')).upper().strip()
+        sexo_sel = st.sidebar.selectbox("Gênero:", ["Masculino", "Feminino"], index=0 if 'M' in gen_detectado else 1)
         cod_genero = "M" if sexo_sel == "Masculino" else "F"
 
         st.header(f"Paciente: {aluno_escolhido}")
@@ -100,14 +101,17 @@ if df_ref is not None and dict_turmas:
         c3.metric("Gênero", sexo_sel)
 
         st.subheader("Curva de Crescimento (OMS)")
-        curva_oms = df_ref[df_ref['genero'] == cod_genero]
+        # Filtro robusto para o CSV de referência
+        curva_oms = df_ref[df_ref['genero'].str.contains(cod_genero, na=False, case=False)]
 
         if not curva_oms.empty:
             fig = go.Figure()
+            # Linhas de Referência
             fig.add_trace(go.Scatter(x=curva_oms['altura'], y=curva_oms['z_2pos'], name='Z+2 (Sobrepeso)', line=dict(color='orange', dash='dot')))
             fig.add_trace(go.Scatter(x=curva_oms['altura'], y=curva_oms['z_0'], name='Ideal (Z-0)', line=dict(color='green', width=3)))
             fig.add_trace(go.Scatter(x=curva_oms['altura'], y=curva_oms['z_2neg'], name='Z-2 (Baixo Peso)', line=dict(color='red', dash='dot')))
             
+            # Ponto do Aluno
             fig.add_trace(go.Scatter(x=[a_val], y=[p_val], mode='markers+text', 
                                      text=["ALUNO"], textposition="top center",
                                      marker=dict(size=15, color='black', symbol='star'), name='Avaliação Atual'))
@@ -115,7 +119,7 @@ if df_ref is not None and dict_turmas:
             fig.update_layout(xaxis_title="Altura (cm)", yaxis_title="Peso (kg)")
             st.plotly_chart(fig, use_container_width=True)
         else:
-            st.warning("Dados de referência da OMS não localizados para este gênero.")
+            st.warning(f"Dados de referência da OMS não localizados para o gênero '{cod_genero}'. Verifique o CSV.")
 
     else:
         st.header(f"📊 Relatório Coletivo - {aba_selecionada}")
@@ -129,4 +133,8 @@ if df_ref is not None and dict_turmas:
         st.dataframe(df_geral[['aluno', 'matricula', 'peso', 'altura', 'imc']], use_container_width=True, hide_index=True)
 
 else:
+    st.info("💡 Certifique-se de que os arquivos 'DADOS - OMC.xlsx' e 'referencias_oms_completo.csv' estão na mesma pasta do script.")
+
+else:
     st.info("💡 Verifique os arquivos 'DADOS - OMC.xlsx' e 'referencias_oms_completo.csv' na pasta.")
+
