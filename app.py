@@ -8,8 +8,18 @@ st.set_page_config(page_title="NutriGestão Escolar", layout="wide")
 # --- CARREGAMENTO DE REFERÊNCIAS ---
 @st.cache_data
 def carregar_referencias():
-    # Carrega o CSV unificado que preparamos (referencias_oms_completo.csv)
-    return pd.read_csv("referencias_oms_completo.csv")
+    try:
+        # Tenta ler ignorando linhas que tenham colunas extras (on_bad_lines)
+        df = pd.read_csv(
+            "referencias_oms_completo.csv", 
+            sep=',', 
+            on_bad_lines='skip', 
+            encoding='utf-8'
+        )
+        return df
+    except Exception as e:
+        st.error(f"Erro crítico ao ler o arquivo de referências: {e}")
+        return pd.DataFrame()
 
 def calcular_imc(peso, altura_cm):
     try:
@@ -118,3 +128,4 @@ except Exception as e:
 
 st.sidebar.markdown("---")
 st.sidebar.caption("Nutricionista Responsável: Marina Mendonça")
+
