@@ -3,129 +3,111 @@ import pandas as pd
 import plotly.graph_objects as go
 
 # Configuração da Página
-st.set_page_config(page_title="NutriGestão Escolar", layout="wide")
+st.set_page_config(page_title="NutriGestão - Marina Mendonça", layout="wide")
 
-# --- CARREGAMENTO DE REFERÊNCIAS ---
+# --- 1. FUNÇÃO DE PADRONIZAÇÃO DE COLUNAS ---
+def padronizar_colunas(df):
+    """Remove acentos, espaços e coloca tudo em minúsculas para evitar erros."""
+    df.columns = [
+        str(c).lower().replace('ê', 'e').replace('é', 'e').strip() 
+        for c in df.columns
+    ]
+    return df
+
+# --- 2. CARREGAMENTO DAS REFERÊNCIAS OMS ---
 @st.cache_data
 def carregar_referencias():
     try:
-        # Tenta ler ignorando linhas que tenham colunas extras (on_bad_lines)
-        df = pd.read_csv(
-            "referencias_oms_completo.csv", 
-            sep=',', 
-            on_bad_lines='skip', 
-            encoding='utf-8'
-        )
-        return df
+        # Carrega o CSV que contém os dados de Escore-Z
+        df = pd.read_csv("referencias_oms_completo.csv", sep=',')
+        return padronizar_colunas(df)
     except Exception as e:
-        st.error(f"Erro crítico ao ler o arquivo de referências: {e}")
+        st.error(f"Erro ao carregar 'referencias_oms_completo.csv': {e}")
         return pd.DataFrame()
 
 def calcular_imc(peso, altura_cm):
     try:
-        altura_m = float(altura_cm) / 100
-        return round(float(peso) / (altura_m ** 2), 2)
+        if peso > 0 and altura_cm > 0:
+            return round(float(peso) / ((float(altura_cm)/100)**2), 2)
+        return 0
     except:
         return 0
 
-# --- INTERFACE PRINCIPAL ---
-st.title("🍎 Dashboard Nutricional Infantil")
+# --- INTERFACE ---
+st.title("🍎 NutriGestão Escolar")
 
 try:
     df_ref = carregar_referencias()
     
-    # Upload da Planilha da Turma (Maternalzinho, Jardim, etc.)
+    # Sidebar: Upload
+    st.sidebar.header("📁 Importação")
     uploaded_file = st.sidebar.file_uploader("Subir Planilha da Turma", type=["xlsx", "csv"])
 
     if uploaded_file:
-        # Verifica se o arquivo é CSV ou Excel
+        # Lê o ficheiro e já padroniza as colunas (Gênero vira genero, etc)
         if uploaded_file.name.endswith('.csv'):
             df_alunos = pd.read_csv(uploaded_file)
         else:
             df_alunos = pd.read_excel(uploaded_file)
         
-        # Limpeza: remove linhas totalmente vazias
-        df_alunos = df_alunos.dropna(subset=['Aluno'])
+        df_alunos = padronizar_colunas(df_alunos)
+        
+        # Seleção do Aluno
+        aluno_nome = st.sidebar.selectbox("Selecione o Aluno:", df_alunos['aluno'].unique())
+        dados_originais = df_alunos[df_alunos['aluno'] == aluno_nome].iloc[0]
 
-        # Seleção do Aluno por Nome
+        # --- 3. SEÇÃO DE EDIÇÃO (SIDEBAR) ---
         st.sidebar.markdown("---")
-        aluno_nome = st.sidebar.selectbox("Selecione o Aluno:", df_alunos['Aluno'].unique())
-        
-        # Localiza os dados originais do aluno selecionado
-        dados_originais = df_alunos[df_alunos['Aluno'] == aluno_nome].iloc[0]
-
-        # --- SEÇÃO DE EDIÇÃO (SIDEBAR) ---
         st.sidebar.subheader("📝 Editar Informações")
-        st.sidebar.info("Ajuste os valores abaixo se precisar corrigir algo da planilha.")
         
-        # Campos de edição com valores padrão vindos da planilha
-        # Tratamos valores nulos (NaN) para não dar erro no componente do Streamlit
-        val_peso = float(dados_originais['Peso (kg)']) if pd.notnull(dados_originais['Peso (kg)']) else 0.0
-        val_altura = float(dados_originais['Altura (cm)']) if pd.notnull(dados_originais['Altura (cm)']) else 0.0
+        # Tratamento de valores nulos
+        peso_val = float(dados_originais['peso (kg)']) if pd.notnull(dados_originais['peso (kg)']) else 0.0
+        alt_val = float(dados_originais['altura (cm)']) if pd.notnull(dados_originais['altura (cm)']) else 0.0
+        gen_val = str(dados_originais['genero']).strip().upper()
+
+        edit_peso = st.sidebar.number_input("Peso (kg):", value=peso_val, step=0.1)
+        edit_altura = st.sidebar.number_input("Altura (cm):", value=alt_val, step=0.1)
+        edit_gen = st.sidebar.selectbox("Gênero:", ["M", "F"], index=0 if gen_val == "M" else 1)
+        edit_idade = st.sidebar.text_input("Idade:", value=str(dados_originais['idade']))
+
+        # --- 4. EXIBIÇÃO ---
+        st.header(f"Ficha: {aluno_nome}")
         
-        edit_peso = st.sidebar.number_input("Peso (kg):", value=val_peso, step=0.1)
-        edit_altura = st.sidebar.number_input("Altura (cm):", value=val_altura, step=0.1)
-        edit_genero = st.sidebar.selectbox("Gênero:", ["M", "F"], 
-                                          index=0 if dados_originais['Gênero'] == "M" else 1)
-        edit_idade = st.sidebar.text_input("Idade:", value=str(dados_originais['Idade']))
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Matrícula", dados_originais['matricula'])
+        c2.metric("Idade", edit_idade)
+        c3.metric("Peso Atual", f"{edit_peso} kg")
+        c4.metric("Altura Atual", f"{edit_altura} cm")
 
-        # Cálculo do IMC com os dados (originais ou editados)
-        imc_atual = calcular_imc(edit_peso, edit_altura)
-
-        # --- EXIBIÇÃO DO DASHBOARD ---
-        st.header(f"Ficha do Aluno: {aluno_nome}")
-        
-        col_m1, col_m2, col_m3, col_m4 = st.columns(4)
-        col_m1.metric("Matrícula", dados_originais['Matrícula'])
-        col_m2.metric("Idade", edit_idade)
-        col_m3.metric("Peso", f"{edit_peso} kg")
-        col_m4.metric("Altura", f"{edit_altura} cm")
-
-        # --- GRÁFICO DE CRESCIMENTO (OMS) ---
+        # --- 5. GRÁFICO ---
         st.markdown("---")
-        st.subheader("Análise Comparativa: Peso x Estatura")
+        st.subheader("Gráfico de Crescimento (Peso x Estatura - OMS)")
         
-        # Filtra a curva da OMS pelo gênero (M ou F)
-        curva_ref = df_ref[df_ref['genero'] == edit_genero]
-
-        fig = go.Figure()
-
-        # Adicionando as linhas de Escore-Z (OMS)
-        fig.add_trace(go.Scatter(x=curva_ref['estatura'], y=curva_ref['z_2pos'], 
-                                 name='Z+2 (Sobrepeso)', line=dict(color='orange', dash='dot')))
-        fig.add_trace(go.Scatter(x=curva_ref['estatura'], y=curva_ref['z_0'], 
-                                 name='Z-0 (Mediana)', line=dict(color='green', width=3)))
-        fig.add_trace(go.Scatter(x=curva_ref['estatura'], y=curva_ref['z_2neg'], 
-                                 name='Z-2 (Baixo Peso)', line=dict(color='red', dash='dot')))
-
-        # Ponto do Aluno (Estrela preta)
-        fig.add_trace(go.Scatter(x=[edit_altura], y=[edit_peso],
-                                 mode='markers+text', name='Aluno Atual',
-                                 text=[f"IMC: {imc_atual}"], textposition="top center",
-                                 marker=dict(color='black', size=16, symbol='star')))
-
-        fig.update_layout(
-            xaxis_title="Estatura (cm)",
-            yaxis_title="Peso (kg)",
-            height=600,
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-        )
+        # Filtra curva por gênero editado
+        df_visual = df_ref[df_ref['genero'] == edit_gen]
         
-        st.plotly_chart(fig, use_container_width=True)
+        if not df_visual.empty:
+            fig = go.Figure()
+            
+            # Linhas de Referência
+            fig.add_trace(go.Scatter(x=df_visual['estatura'], y=df_visual['z_2pos'], name='Z+2 (Sobrepeso)', line=dict(color='orange', dash='dot')))
+            fig.add_trace(go.Scatter(x=df_visual['estatura'], y=df_visual['z_0'], name='Z-0 (Ideal)', line=dict(color='green', width=3)))
+            fig.add_trace(go.Scatter(x=df_visual['estatura'], y=df_visual['z_2neg'], name='Z-2 (Baixo Peso)', line=dict(color='red', dash='dot')))
 
-        # Mensagem de Feedback
-        if imc_atual > 0:
-            st.success(f"Análise concluída para {aluno_nome}. O IMC calculado é **{imc_atual}**.")
+            # Ponto do Aluno
+            imc = calcular_imc(edit_peso, edit_altura)
+            fig.add_trace(go.Scatter(x=[edit_altura], y=[edit_peso], mode='markers+text', name='Aluno', 
+                                     text=[f"IMC: {imc}"], textposition="top center",
+                                     marker=dict(color='black', size=15, symbol='star')))
+
+            fig.update_layout(xaxis_title="Estatura (cm)", yaxis_title="Peso (kg)", height=600)
+            st.plotly_chart(fig, use_container_width=True)
+            st.info(f"O IMC atualizado é **{imc}**.")
         else:
-            st.warning("Insira Peso e Altura para visualizar o IMC e a posição no gráfico.")
+            st.warning("Dados de referência não encontrados para o gênero selecionado.")
 
     else:
-        st.info("💡 Marina, selecione uma planilha de turma (ex: Maternal II A) para começar a análise.")
+        st.info("Aguardando upload da planilha da escola...")
 
 except Exception as e:
-    st.error(f"Erro detectado: {e}")
-    st.info("Dica: Verifique se o arquivo 'referencias_oms_completo.csv' está na raiz da pasta.")
-
-st.sidebar.markdown("---")
-st.sidebar.caption("Nutricionista Responsável: Marina Mendonça")
-
+    st.error(f"Erro no processamento: {e}")
