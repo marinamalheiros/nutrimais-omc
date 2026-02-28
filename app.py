@@ -18,11 +18,16 @@ def padronizar_colunas(df):
 @st.cache_data
 def carregar_referencias():
     try:
-        # Carrega o CSV que contém os dados de Escore-Z
-        df = pd.read_csv("referencias_oms_completo.csv", sep=',')
+        # on_bad_lines='skip' ignora linhas com erro de colunas (como a linha 3 do seu erro)
+        df = pd.read_csv(
+            "referencias_oms_completo.csv", 
+            sep=',', 
+            on_bad_lines='skip', 
+            encoding='utf-8'
+        )
         return padronizar_colunas(df)
     except Exception as e:
-        st.error(f"Erro ao carregar 'referencias_oms_completo.csv': {e}")
+        st.error(f"Erro crítico ao ler o arquivo de referências: {e}")
         return pd.DataFrame()
 
 def calcular_imc(peso, altura_cm):
@@ -111,3 +116,4 @@ try:
 
 except Exception as e:
     st.error(f"Erro no processamento: {e}")
+
