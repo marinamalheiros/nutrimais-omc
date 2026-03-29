@@ -3,21 +3,15 @@ import pandas as pd
 import plotly.graph_objects as go
 import re
 
-# --- 1. CONFIGURAÇÃO DA PÁGINA E ESTILO ---
+# --- 1. CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(page_title="NutriGestão - O Mundo da Criança", layout="wide")
 
 st.markdown(
     """
     <style>
     .stApp { background-color: #F3E5F5; }
-    [data-testid="stMetricValue"] { color: #4A148C; }
-    .status-sidebar {
-        color: white; padding: 10px; border-radius: 5px; text-align: center; font-weight: bold; margin-top: 10px;
-    }
-    .status-box {
-        padding: 5px; border-radius: 5px; text-align: center; font-weight: bold;
-        color: white; font-size: 0.85rem; margin-top: -5px; margin-bottom: 15px;
-    }
+    .status-sidebar { color: white; padding: 10px; border-radius: 5px; text-align: center; font-weight: bold; margin-top: 10px; }
+    .status-box { padding: 5px; border-radius: 5px; text-align: center; font-weight: bold; color: white; font-size: 0.85rem; margin-top: -5px; margin-bottom: 15px; }
     </style>
     """,
     unsafe_allow_html=True
@@ -52,7 +46,7 @@ def preparar_dataframe(df):
         if col in cols_num or col.startswith('z_'):
             df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', '.').str.strip(), errors='coerce')
             
-    if 'idade_original' in df.columns:
+    if 'idade_original' in df.columns and 'idade_meses' not in df.columns:
         df['idade_meses'] = df['idade_original'].apply(converter_idade_para_meses)
     return df
 
@@ -74,7 +68,8 @@ def carregar_dados():
     try:
         df_ref = pd.read_csv("referencias_oms_completo.csv", sep=';', decimal=',', on_bad_lines='skip')
         df_ref['tipo'] = df_ref['tipo'].astype(str).str.strip().str.lower()
-        df_ref['genero'] = df_ref['genero'].astype(str).str.strip().str.upper()
+        # Limpeza agressiva de gênero para não sumir dados
+        df_ref['genero'] = df_ref['genero'].astype(str).str.strip().str.upper().map({'FEMININO': 'F', 'MASCULINO': 'M', 'F': 'F', 'M': 'M'})
         df_ref = preparar_dataframe(df_ref)
         dict_turmas = pd.read_excel("DADOS - OMC.xlsx", sheet_name=None)
         turmas = {n: preparar_dataframe(d) for n, d in dict_turmas.items()}
@@ -82,27 +77,30 @@ def carregar_dados():
     except Exception as e:
         st.error(f"Erro: {e}"); return None, None
 
-# --- 3. GERAÇÃO DE GRÁFICOS COM FILTRO DE ZEROS E ZOOM ---
+# --- 3. GERAÇÃO DE GRÁFICOS (EIXOS FIXOS E SEM ZEROS) ---
 def gerar_mini_grafico(tipo, gen, df_ref, medicoes):
     fig = go.Figure()
-    gen_limpo = str(gen).strip().upper()
-    curva_raw = df_ref[(df_ref['genero'] == gen_limpo) & (df_ref['tipo'] == tipo)].copy()
+    # Normaliza o gênero para busca
+    g_busca = 'F' if str(gen).strip().upper() in ['F', 'FEMININO'] else 'M'
     
+    curva_raw = df_ref[(df_ref['genero'] == g_busca) & (df_ref['tipo'] == tipo)].copy()
+    
+    # DEFINIÇÃO ESTÁTICA DOS EIXOS: X é sempre a base (Idade ou Altura)
     col_x = 'altura' if tipo == 'peso_altura' else 'idade_meses'
     
-    # Limpeza radical de zeros na referência
+    # Limpeza de zeros na referência
     curva_base = curva_raw[(curva_raw[col_x] > 0) & (curva_raw['z_0'] > 0)].dropna(subset=[col_x, 'z_0'])
     
+    # Escala mensal fixa de 12 meses
     if tipo != "peso_altura" and medicoes:
         idade_atual = float(medicoes[0]['x_idade'])
-        min_x = max(0, idade_atual - 1)
-        max_x = idade_atual + 12
-        curva = curva_base[(curva_base[col_x] >= min_x) & (curva_base[col_x] <= max_x)]
+        curva = curva_base[(curva_base[col_x] >= (idade_atual - 1)) & (curva_base[col_x] <= (idade_atual + 12))]
         dtick_val = 1 
     else:
         curva = curva_base
         dtick_val = None
 
+    # Linhas de referência
     if not curva.empty:
         for col_z, color in [('z_3pos', 'red'), ('z_2pos', 'orange'), ('z_0', 'green'), ('z_2neg', 'orange'), ('z_3neg', 'red')]:
             if col_z in curva.columns:
@@ -113,6 +111,7 @@ def gerar_mini_grafico(tipo, gen, df_ref, medicoes):
                         line=dict(color=color, width=1.5, dash='dot' if col_z!='z_0' else 'solid'), 
                         mode='lines', hoverinfo='skip', connectgaps=False))
     
+    # Pontos do Aluno
     valores_y_aluno = []
     for m in medicoes:
         val_y = m['y_peso'] if 'peso' in tipo else (m['y_alt'] if 'estatura' in tipo else m['y_imc'])
@@ -124,12 +123,12 @@ def gerar_mini_grafico(tipo, gen, df_ref, medicoes):
                 text=[f"<b>{val_y}</b>"], textposition="top center",
                 marker=dict(size=12, color=m['cor_base'], line=dict(width=2, color='white'))))
     
+    # Configuração de Eixos (Zoom no Aluno)
     yaxis_config = dict(gridcolor='lightgrey')
     if valores_y_aluno:
-        margem = min(valores_y_aluno) * 0.1
-        yaxis_config['range'] = [min(valores_y_aluno) - margem, max(valores_y_aluno) + margem]
-    else:
-        yaxis_config['rangemode'] = "nonnegative"
+        min_y, max_y = min(valores_y_aluno), max(valores_y_aluno)
+        yaxis_config['range'] = [min_y * 0.85, max_y * 1.15]
+    else: yaxis_config['rangemode'] = "nonnegative"
 
     fig.update_layout(
         title=f"<b>{tipo.replace('_',' ').upper()}</b>", height=300, 
@@ -139,10 +138,7 @@ def gerar_mini_grafico(tipo, gen, df_ref, medicoes):
     )
     return fig
 
-# --- 4. CABEÇALHO E EXECUÇÃO ---
-st.title("🍎 Acompanhamento Nutricional - O Mundo da Criança")
-st.markdown(f"##### pela Nutricionista Marina Malheiros Mendonça - CRN 5 21456 🍐🍒")
-
+# --- 4. EXECUÇÃO ---
 df_ref, dict_turmas = carregar_dados()
 
 if df_ref is not None and dict_turmas:
@@ -152,7 +148,8 @@ if df_ref is not None and dict_turmas:
     modo = st.sidebar.radio("Ver:", ["Ficha Individual", "Relatório Coletivo"])
 
     dados_base = df_atual[df_atual['aluno'] == aluno_nome].iloc[0]
-    gen = "M" if "M" in str(dados_base.get('genero', 'M')).upper() else "F"
+    gen_original = str(dados_base.get('genero', 'M')).strip().upper()
+    gen = 'F' if gen_original in ['F', 'FEMININO'] else 'M'
 
     if modo == "Ficha Individual":
         st.header(f"Ficha: {aluno_nome}")
@@ -192,7 +189,8 @@ if df_ref is not None and dict_turmas:
                     val_x_m = float(m['x_alt'] if p_nome == 'peso_altura' else m['x_idade'])
                     curva_esp = df_ref[(df_ref['genero'] == gen) & (df_ref['tipo'] == p_nome)]
                     if not curva_esp.empty:
-                        temp_serie = (curva_esp['altura' if p_nome == 'peso_altura' else 'idade_meses'].astype(float) - val_x_m).abs()
+                        col_busca = 'altura' if p_nome == 'peso_altura' else 'idade_meses'
+                        temp_serie = (curva_esp[col_busca].astype(float) - val_x_m).abs()
                         idx_esp = temp_serie.idxmin()
                         st_esp, cor_esp = classificar_oms_geral(val_y_m, curva_esp.loc[[idx_esp]])
                     else: st_esp, cor_esp = "Sem Dados", "#808080"
