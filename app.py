@@ -89,11 +89,58 @@ def carregar_dados():
 # --- AJUSTE NA GERAÇÃO DO GRÁFICO ---
 def gerar_mini_grafico(tipo, gen, df_ref, medicoes):
     fig = go.Figure()
-    # Garante que o 'gen' que vem da barra lateral também esteja limpo e em maiúsculo
-    gen_limpo = str(gen).strip().upper()
-    curva_base = df_ref[(df_ref['genero'] == gen_limpo) & (df_ref['tipo'] == tipo)]
+    # 1. Filtro base por gênero e tipo
+    curva_base = df_ref[(df_ref['genero'] == str(gen).strip().upper()) & (df_ref['tipo'] == tipo)]
     
-    # ... resto da lógica de eixos e escala mensal que já ajustamos ...
+    col_x = 'altura' if tipo == 'peso_altura' else 'idade_meses'
+    
+    # 2. LIMPEZA DOS ZEROS: Remove linhas onde o eixo X é zero (evita o erro visual)
+    curva_base = curva_base[curva_base[col_x] > 0]
+    
+    # Lógica de escala mensal (Janela de 12 meses)
+    if tipo != "peso_altura" and medicoes:
+        idade_atual = float(medicoes[0]['x_idade'])
+        min_x = max(0, idade_atual - 1)
+        max_x = idade_atual + 12
+        curva = curva_base[(curva_base[col_x] >= min_x) & (curva_base[col_x] <= max_x)]
+        dtick_val = 1 
+    else:
+        curva = curva_base
+        dtick_val = None
+
+    # Desenha as linhas de referência (apenas se houver dados válidos)
+    if not curva.empty:
+        for col_z, color in [('z_3pos', 'red'), ('z_2pos', 'orange'), ('z_0', 'green'), ('z_2neg', 'orange'), ('z_3neg', 'red')]:
+            if col_z in curva.columns:
+                fig.add_trace(go.Scatter(
+                    x=curva[col_x], 
+                    y=curva[col_z], 
+                    line=dict(color=color, width=1, dash='dot' if col_z!='z_0' else 'solid'), 
+                    mode='lines', 
+                    hoverinfo='skip'
+                ))
+    
+    # Plotagem das aferições (Pontos do Aluno)
+    for m in medicoes:
+        val_y = m['y_peso'] if 'peso' in tipo else (m['y_alt'] if 'estatura' in tipo else m['y_imc'])
+        val_x = m['x_alt'] if tipo == 'peso_altura' else m['x_idade']
+        
+        # Só plota o ponto se o valor for maior que zero
+        if val_y > 0:
+            fig.add_trace(go.Scatter(
+                x=[val_x], y=[val_y], mode='markers+text',
+                text=[f"<b>{val_y}</b>"], textposition="top center",
+                marker=dict(size=10, color=m['cor_base'], line=dict(width=1, color='white'))
+            ))
+    
+    fig.update_layout(
+        title=f"<b>{tipo.replace('_',' ').upper()}</b>", 
+        height=280, margin=dict(l=10, r=10, t=40, b=10), 
+        template="plotly_white", 
+        showlegend=False,
+        xaxis=dict(dtick=dtick_val, title="Idade (Meses)" if tipo != "peso_altura" else "Altura (cm)")
+    )
+    return fig
 
 # --- 3. GERAÇÃO DE GRÁFICOS ---
 def gerar_mini_grafico(tipo, gen, df_ref, medicoes):
