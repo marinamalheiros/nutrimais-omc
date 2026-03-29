@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
+import re
 
 # Configuração da Página
 st.set_page_config(page_title="NutriGestão - O Mundo da Criança", layout="wide")
@@ -39,16 +40,22 @@ def preparar_dataframe(df):
     cols_num = ['peso', 'altura', 'z_3neg', 'z_2neg', 'z_1neg', 'z_0', 'z_1pos', 'z_2pos', 'z_3pos']
     for col in df.columns:
         if col in cols_num:
+            # Tratamento para garantir que vírgulas virem pontos antes da conversão numérica
             df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', '.'), errors='coerce')
     return df
 
 def classificar_oms(peso, altura, curva_ref):
     try:
-        if peso <= 0 or altura <= 0 or curva_ref.empty:
+        # Filtra apenas o tipo peso_altura para esta classificação específica
+        ref_pa = curva_ref[curva_ref['tipo'] == 'peso_altura']
+        
+        if peso <= 0 or altura <= 0 or ref_pa.empty:
             return "Dados Insuficientes", "#808080"
-        idx = (curva_ref['altura'] - altura).abs().idxmin()
-        ref = curva_ref.loc[idx]
+            
+        idx = (ref_pa['altura'] - altura).abs().idxmin()
+        ref = ref_pa.loc[idx]
         p = float(peso)
+        
         if p < ref['z_3neg']: return "Magreza acentuada", "#8B0000"
         elif p < ref['z_2neg']: return "Magreza", "#FF4500"
         elif p < ref['z_1pos']: return "Eutrofia", "#2E8B57"
@@ -61,8 +68,16 @@ def classificar_oms(peso, altura, curva_ref):
 @st.cache_data
 def carregar_dados():
     try:
+        # Carregamento ajustado para o seu CSV atualizado (sep ; e decimal ,)
         df_ref = pd.read_csv("referencias_oms_completo.csv", sep=';', decimal=',', on_bad_lines='skip')
+        # Limpeza básica de strings nas colunas de controle
+        if 'tipo' in df_ref.columns:
+            df_ref['tipo'] = df_ref['tipo'].str.strip().str.lower()
+        if 'genero' in df_ref.columns:
+            df_ref['genero'] = df_ref['genero'].str.strip().upper()
+            
         df_ref = preparar_dataframe(df_ref)
+        
         dict_turmas = pd.read_excel("DADOS - OMC.xlsx", sheet_name=None)
         turmas = {n: preparar_dataframe(d) for n, d in dict_turmas.items()}
         return df_ref, turmas
@@ -86,7 +101,10 @@ if df_ref is not None and dict_turmas:
     aluno_nome = st.sidebar.selectbox("Aluno:", lista_alunos)
     
     dados_aluno = df_atual[df_atual['aluno'] == aluno_nome].iloc[0]
+    # Normalização do gênero para busca na referência
     gen_aluno = "M" if "M" in str(dados_aluno.get('genero', 'M')).upper() else "F"
+    
+    # Filtra as referências pelo gênero do aluno selecionado
     curva_ref_aluno = df_ref[df_ref['genero'] == gen_aluno]
     
     p_side = float(dados_aluno.get('peso', 0))
@@ -95,7 +113,7 @@ if df_ref is not None and dict_turmas:
     imc_side = round(p_side / ((a_side/100)**2), 2) if a_side > 0 else 0
     
     st.sidebar.markdown("---")
-    st.sidebar.markdown("**Status Atual:**")
+    st.sidebar.markdown("**Status Atual (Peso/Est.):**")
     st.sidebar.write(f"👤 **{aluno_nome}**")
     st.sidebar.metric("IMC Atual", imc_side)
     st.sidebar.markdown(f"<div style='background-color:{cor_side}; color:white; padding:10px; border-radius:5px; text-align:center; font-weight:bold;'>{status_side}</div>", unsafe_allow_html=True)
@@ -125,7 +143,10 @@ if df_ref is not None and dict_turmas:
             alt_m = [m['a'] for m in medicoes]; pes_m = [m['p'] for m in medicoes]
             min_x, max_x = min(alt_m) - 4, max(alt_m) + 4
             min_y, max_y = min(pes_m) - 4, max(pes_m) + 4
-            c_zoom = curva_ref_aluno[(curva_ref_aluno['altura'] >= min_x) & (curva_ref_aluno['altura'] <= max_x)]
+            
+            # Filtra apenas os dados de peso_altura para o gráfico de dispersão
+            c_ref_plot = curva_ref_aluno[curva_ref_aluno['tipo'] == 'peso_altura']
+            c_zoom = c_ref_plot[(c_ref_plot['altura'] >= min_x) & (c_ref_plot['altura'] <= max_x)]
 
             refs = [('z_3pos', 'Obesidade', 'red'), ('z_2pos', 'Sobrepeso', 'orange'), 
                     ('z_1pos', 'Risco Sobrep.', 'yellow'), ('z_0', 'Eutrofia', 'green'), 
@@ -152,11 +173,15 @@ if df_ref is not None and dict_turmas:
         st.header(f"📊 Panorama: {aba_sel}")
         df_turma = df_atual[df_atual['peso'] > 0].copy()
         if not df_turma.empty:
+            # Aplica classificação linha a linha filtrando o gênero correto na referência
             df_turma['Status'] = df_turma.apply(lambda x: classificar_oms(x['peso'], x['altura'], df_ref[df_ref['genero'] == x['genero']])[0], axis=1)
+            
             fig_col = go.Figure()
             min_xc, max_xc = df_turma['altura'].min() - 5, df_turma['altura'].max() + 5
             min_yc, max_yc = df_turma['peso'].min() - 5, df_turma['peso'].max() + 5
-            curva_c = df_ref[df_ref['genero'] == gen_aluno] 
+            
+            # Para o fundo do gráfico coletivo, usamos a referência do gênero predominante ou do último selecionado
+            curva_c = df_ref[(df_ref['genero'] == gen_aluno) & (df_ref['tipo'] == 'peso_altura')] 
             c_c_zoom = curva_c[(curva_c['altura'] >= min_xc) & (curva_c['altura'] <= max_xc)]
             
             refs = [('z_3pos', 'Obesidade', 'red'), ('z_2pos', 'Sobrepeso', 'orange'), 
@@ -164,7 +189,8 @@ if df_ref is not None and dict_turmas:
                     ('z_2neg', 'Magreza', 'orange'), ('z_3neg', 'Magreza Ac.', 'red')]
             
             for col, lab, color in refs:
-                fig_col.add_trace(go.Scatter(x=c_c_zoom['altura'], y=c_c_zoom[col], name=lab, 
+                if col in c_c_zoom.columns:
+                    fig_col.add_trace(go.Scatter(x=c_c_zoom['altura'], y=c_c_zoom[col], name=lab, 
                                              line=dict(color=color, width=1.5, dash='dash'), mode='lines', hoverinfo='skip'))
 
             for status, cor in [("Eutrofia", "#2E8B57"), ("Risco de sobrepeso", "#FFD700"), ("Sobrepeso", "#FF8C00"), 
