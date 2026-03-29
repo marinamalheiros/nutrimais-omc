@@ -12,8 +12,7 @@ st.markdown("""
     .stApp { background-color: #F3E5F5; }
     .status-sidebar { color: white; padding: 15px; border-radius: 8px; text-align: center; font-weight: bold; margin-bottom: 20px; }
     .status-box { padding: 8px; border-radius: 5px; text-align: center; font-weight: bold; color: white; font-size: 0.85rem; margin-bottom: 10px; }
-    .header-style { color: #4A148C; font-weight: bold; margin-bottom: 0px; }
-    .crn-style { color: #6A1B9A; font-size: 1.2rem; margin-bottom: 20px; }
+    .header-style { color: #4A148C; font-weight: bold; margin-bottom: 5px; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -70,8 +69,10 @@ def classificar_oms(valor, ref_linha):
 df_ref, turmas = carregar_dados_sistema()
 
 if df_ref is not None and turmas:
+    # AJUSTE DE NOME COM A MESMA FONTE DO CABEÇALHO
     st.markdown("<h1 class='header-style'>🍎 NutriGestão - O Mundo da Criança</h1>", unsafe_allow_html=True)
-    st.markdown("<p class='crn-style'>Nutricionista Marina Malheiros Mendonça - CRN 5 21456</p>", unsafe_allow_html=True)
+    st.markdown("<h3 class='header-style'>Nutricionista Marina Malheiros Mendonça - CRN 5 21456</h3>", unsafe_allow_html=True)
+    st.divider()
 
     aba_sel = st.sidebar.selectbox("Turma:", list(turmas.keys()))
     df_atual = turmas[aba_sel]
@@ -103,7 +104,7 @@ if df_ref is not None and turmas:
                     if i == len(medicoes) - 1:
                         st.sidebar.markdown(f"<div class='status-sidebar' style='background-color:{cor};'>STATUS ATUAL:<br>{status}</div>", unsafe_allow_html=True)
 
-        # --- GRÁFICOS COM STATUS ABAIXO ---
+        # --- GRÁFICOS COM CORREÇÃO DE LIMITES E STATUS ---
         st.divider()
         g_row = st.columns(2)
         params = [("peso_altura", "Peso x Altura"), ("imc_idade", "IMC x Idade"), ("peso_idade", "Peso x Idade"), ("estatura_idade", "Estatura x Idade")]
@@ -111,22 +112,32 @@ if df_ref is not None and turmas:
         for idx, (slug, nome_g) in enumerate(params):
             with g_row[idx % 2]:
                 fig = go.Figure()
+                # Pega a curva completa para evitar quebras
                 curva = df_ref[(df_ref['tipo'] == slug) & (df_ref['genero'] == gen)].copy()
                 eixo_x = 'altura' if slug == 'peso_altura' else 'idade_meses'
                 curva = curva[curva[eixo_x] > 0].sort_values(by=eixo_x)
-                
-                if slug != "peso_altura":
-                    curva = curva[(curva[eixo_x] >= dados_aluno['idade_meses'] - 2) & (curva[eixo_x] <= dados_aluno['idade_meses'] + 12)]
 
+                # Desenho das curvas Z-score (sempre completas)
                 for z_col, z_cor in [('z_3pos', 'red'), ('z_2pos', 'orange'), ('z_0', 'green'), ('z_2neg', 'orange'), ('z_3neg', 'red')]:
                     fig.add_trace(go.Scatter(x=curva[eixo_x], y=curva[z_col], line=dict(color=z_cor, width=1.2, dash='dot' if '0' not in z_col else 'solid'), mode='lines', hoverinfo='skip'))
 
+                # Pontos das aferições do aluno
                 for m in medicoes:
                     vy = m['p'] if 'peso' in slug else (m['a'] if 'estatura' in slug else m['imc'])
                     vx = m['a'] if slug == 'peso_altura' else m['meses']
-                    fig.add_trace(go.Scatter(x=[vx], y=[vy], mode='markers+text', text=[f"{vy}"], textposition="top center", marker=dict(size=10, color=m['cor'], line=dict(width=1, color='white'))))
+                    fig.add_trace(go.Scatter(x=[vx], y=[vy], mode='markers+text', text=[f"<b>{vy}</b>"], textposition="top center", marker=dict(size=10, color=m['cor'], line=dict(width=1, color='white'))))
+
+                # --- AJUSTE DE LIMITES VIA UPDATE_XAXES (ZOOM DINÂMICO) ---
+                if slug != "peso_altura":
+                    idade_aluno = int(dados_aluno['idade_meses'])
+                    x_min, x_max = max(0, idade_aluno - 3), idade_aluno + 15
+                else:
+                    alt_aluno = float(dados_aluno['altura_1'])
+                    x_min, x_max = alt_aluno - 10, alt_aluno + 25
 
                 fig.update_layout(title=f"<b>{nome_g}</b>", height=350, template="plotly_white", showlegend=False, margin=dict(l=10,r=10,t=40,b=10))
+                fig.update_xaxes(range=[x_min, x_max])
+                
                 st.plotly_chart(fig, use_container_width=True)
                 
                 # --- STATUS ESPECÍFICO ABAIXO DO GRÁFICO ---
