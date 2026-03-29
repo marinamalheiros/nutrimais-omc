@@ -69,15 +69,31 @@ def classificar_oms_geral(valor_y, ref_linha):
 @st.cache_data
 def carregar_dados():
     try:
+        # Carrega o CSV forçando o separador correto
         df_ref = pd.read_csv("referencias_oms_completo.csv", sep=';', decimal=',', on_bad_lines='skip')
+        
+        # --- LIMPEZA CRÍTICA DE GÊNERO E TIPO ---
         df_ref['tipo'] = df_ref['tipo'].astype(str).str.strip().str.lower()
+        # Remove espaços e garante que F e M fiquem padronizados
         df_ref['genero'] = df_ref['genero'].astype(str).str.strip().str.upper()
+        
         df_ref = preparar_dataframe(df_ref)
+        
         dict_turmas = pd.read_excel("DADOS - OMC.xlsx", sheet_name=None)
         turmas = {n: preparar_dataframe(d) for n, d in dict_turmas.items()}
         return df_ref, turmas
     except Exception as e:
-        st.error(f"Erro: {e}"); return None, None
+        st.error(f"Erro ao carregar: {e}")
+        return None, None
+
+# --- AJUSTE NA GERAÇÃO DO GRÁFICO ---
+def gerar_mini_grafico(tipo, gen, df_ref, medicoes):
+    fig = go.Figure()
+    # Garante que o 'gen' que vem da barra lateral também esteja limpo e em maiúsculo
+    gen_limpo = str(gen).strip().upper()
+    curva_base = df_ref[(df_ref['genero'] == gen_limpo) & (df_ref['tipo'] == tipo)]
+    
+    # ... resto da lógica de eixos e escala mensal que já ajustamos ...
 
 # --- 3. GERAÇÃO DE GRÁFICOS ---
 def gerar_mini_grafico(tipo, gen, df_ref, medicoes):
