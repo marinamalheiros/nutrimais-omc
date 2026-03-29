@@ -12,7 +12,8 @@ st.markdown("""
     .stApp { background-color: #F3E5F5; }
     .status-sidebar { color: white; padding: 15px; border-radius: 8px; text-align: center; font-weight: bold; margin-bottom: 20px; }
     .status-box { padding: 8px; border-radius: 5px; text-align: center; font-weight: bold; color: white; font-size: 0.85rem; margin-bottom: 10px; }
-    .header-style { color: #4A148C; font-weight: bold; }
+    .header-style { color: #4A148C; font-weight: bold; margin-bottom: 0px; }
+    .crn-style { color: #6A1B9A; font-size: 1.2rem; margin-bottom: 20px; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -29,41 +30,27 @@ def converter_idade_para_meses(texto_idade):
 @st.cache_data
 def carregar_dados_sistema():
     try:
-        # 1. Referências OMS (CSV)
         df_ref = pd.read_csv("referencias_oms_completo.csv", sep=';', decimal=',')
         cols_z = ['z_3neg', 'z_2neg', 'z_1neg', 'z_0', 'z_1pos', 'z_2pos', 'z_3pos']
         for col in cols_z:
             df_ref[col] = pd.to_numeric(df_ref[col].astype(str).str.replace(',', '.'), errors='coerce')
         
-        # 2. Dados dos Alunos (1º Tri da Planilha)
         arquivo_excel = "DADOS - OMC.xlsx"
-        if not os.path.exists(arquivo_excel):
-            return df_ref, None
+        if not os.path.exists(arquivo_excel): return df_ref, None
             
         dict_abas = pd.read_excel(arquivo_excel, sheet_name=None)
         turmas_prontas = {}
-        
         for nome_aba, df in dict_abas.items():
             df.columns = [str(c).strip() for c in df.columns]
-            # Mapeamento exato das colunas da sua planilha
-            mapeamento = {
-                'Aluno': 'aluno', 
-                'Gênero': 'genero', 
-                'Idade': 'idade_str', 
-                'Peso (kg)': 'peso_1', 
-                'Altura (cm)': 'altura_1'
-            }
+            mapeamento = {'Aluno': 'aluno', 'Gênero': 'genero', 'Idade': 'idade_str', 'Peso (kg)': 'peso_1', 'Altura (cm)': 'altura_1'}
             df = df.rename(columns=mapeamento)
-            
-            # Limpeza e conversão
             df['peso_1'] = pd.to_numeric(df['peso_1'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0.0)
             df['altura_1'] = pd.to_numeric(df['altura_1'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0.0)
             df['idade_meses'] = df['idade_str'].apply(converter_idade_para_meses)
             turmas_prontas[nome_aba] = df
-            
         return df_ref, turmas_prontas
     except Exception as e:
-        st.error(f"Erro ao processar os arquivos: {e}")
+        st.error(f"Erro: {e}")
         return None, None
 
 def classificar_oms(valor, ref_linha):
@@ -83,15 +70,11 @@ def classificar_oms(valor, ref_linha):
 df_ref, turmas = carregar_dados_sistema()
 
 if df_ref is not None and turmas:
-    # CABEÇALHO COM SEU NOME E CRN
     st.markdown("<h1 class='header-style'>🍎 NutriGestão - O Mundo da Criança</h1>", unsafe_allow_html=True)
-    st.markdown("### Nutricionista Marina Malheiros Mendonça - CRN 5 21456")
-    st.divider()
+    st.markdown("<p class='crn-style'>Nutricionista Marina Malheiros Mendonça - CRN 5 21456</p>", unsafe_allow_html=True)
 
-    st.sidebar.title("Configurações")
     aba_sel = st.sidebar.selectbox("Turma:", list(turmas.keys()))
     df_atual = turmas[aba_sel]
-    
     aluno_nome = st.sidebar.selectbox("Aluno:", sorted(df_atual['aluno'].unique()))
     modo = st.sidebar.radio("Navegação:", ["Ficha Individual", "Relatório Coletivo"])
     
@@ -100,21 +83,14 @@ if df_ref is not None and turmas:
 
     if modo == "Ficha Individual":
         st.header(f"Ficha: {aluno_nome}")
-        st.markdown(f"**Idade:** {dados_aluno['idade_str']}")
-
         cols_tri = st.columns(4)
         medicoes = []
 
-        for i, tri_label in enumerate(["1º Tri (Planilha)", "2º Tri", "3º Tri", "4º Tri"]):
+        for i, tri in enumerate(["1º Tri (Planilha)", "2º Tri", "3º Tri", "4º Tri"]):
             with cols_tri[i]:
-                st.subheader(tri_label)
-                # Puxa automaticamente da planilha se for o 1º Tri
-                p_val = float(dados_aluno['peso_1']) if i == 0 else 0.0
-                a_val = float(dados_aluno['altura_1']) if i == 0 else 0.0
-                
-                # Chave única para evitar conflitos no Streamlit
-                p = st.number_input(f"Peso (kg)", value=p_val, key=f"p{i}_{aluno_nome}")
-                a = st.number_input(f"Alt (cm)", value=a_val, key=f"a{i}_{aluno_nome}")
+                st.subheader(tri)
+                p = st.number_input(f"Peso (kg)", value=float(dados_aluno['peso_1']) if i == 0 else 0.0, key=f"p{i}_{aluno_nome}")
+                a = st.number_input(f"Alt (cm)", value=float(dados_aluno['altura_1']) if i == 0 else 0.0, key=f"a{i}_{aluno_nome}")
                 
                 if p > 0 and a > 0:
                     imc = round(p / ((a/100)**2), 2)
@@ -122,17 +98,12 @@ if df_ref is not None and turmas:
                     idx_m = (ref_pa['altura'] - a).abs().idxmin()
                     status, cor = classificar_oms(p, ref_pa.loc[[idx_m]])
                     
-                    medicoes.append({
-                        'p': p, 'a': a, 'imc': imc, 'cor': cor, 
-                        'status': status, 'meses': dados_aluno['idade_meses'] + (i*3)
-                    })
+                    medicoes.append({'p': p, 'a': a, 'imc': imc, 'cor': cor, 'status': status, 'meses': dados_aluno['idade_meses'] + (i*3)})
                     st.markdown(f"<div class='status-box' style='background-color:{cor}'>{status}</div>", unsafe_allow_html=True)
-                    
-                    # Atualiza o status no sidebar com a medição mais recente
                     if i == len(medicoes) - 1:
                         st.sidebar.markdown(f"<div class='status-sidebar' style='background-color:{cor};'>STATUS ATUAL:<br>{status}</div>", unsafe_allow_html=True)
 
-        # --- GRÁFICOS (RESTAURADOS E CORRIGIDOS) ---
+        # --- GRÁFICOS COM STATUS ABAIXO ---
         st.divider()
         g_row = st.columns(2)
         params = [("peso_altura", "Peso x Altura"), ("imc_idade", "IMC x Idade"), ("peso_idade", "Peso x Idade"), ("estatura_idade", "Estatura x Idade")]
@@ -142,19 +113,14 @@ if df_ref is not None and turmas:
                 fig = go.Figure()
                 curva = df_ref[(df_ref['tipo'] == slug) & (df_ref['genero'] == gen)].copy()
                 eixo_x = 'altura' if slug == 'peso_altura' else 'idade_meses'
-                
-                # Ordenação para evitar inversão e cruzamento de linhas
                 curva = curva[curva[eixo_x] > 0].sort_values(by=eixo_x)
                 
                 if slug != "peso_altura":
                     curva = curva[(curva[eixo_x] >= dados_aluno['idade_meses'] - 2) & (curva[eixo_x] <= dados_aluno['idade_meses'] + 12)]
 
-                # Desenho das curvas Z-score (Ordem correta)
-                z_map = [('z_3pos', 'red'), ('z_2pos', 'orange'), ('z_0', 'green'), ('z_2neg', 'orange'), ('z_3neg', 'red')]
-                for z_col, z_cor in z_map:
+                for z_col, z_cor in [('z_3pos', 'red'), ('z_2pos', 'orange'), ('z_0', 'green'), ('z_2neg', 'orange'), ('z_3neg', 'red')]:
                     fig.add_trace(go.Scatter(x=curva[eixo_x], y=curva[z_col], line=dict(color=z_cor, width=1.2, dash='dot' if '0' not in z_col else 'solid'), mode='lines', hoverinfo='skip'))
 
-                # Pontos das aferições do aluno
                 for m in medicoes:
                     vy = m['p'] if 'peso' in slug else (m['a'] if 'estatura' in slug else m['imc'])
                     vx = m['a'] if slug == 'peso_altura' else m['meses']
@@ -162,10 +128,18 @@ if df_ref is not None and turmas:
 
                 fig.update_layout(title=f"<b>{nome_g}</b>", height=350, template="plotly_white", showlegend=False, margin=dict(l=10,r=10,t=40,b=10))
                 st.plotly_chart(fig, use_container_width=True)
+                
+                # --- STATUS ESPECÍFICO ABAIXO DO GRÁFICO ---
+                if medicoes:
+                    m_atual = medicoes[-1]
+                    v_aval = m_atual['p'] if 'peso' in slug else (m_atual['a'] if 'estatura' in slug else m_atual['imc'])
+                    ref_esp = df_ref[(df_ref['tipo'] == slug) & (df_ref['genero'] == gen)]
+                    idx_esp = (ref_esp[eixo_x] - (m_atual['a'] if slug == 'peso_altura' else m_atual['meses'])).abs().idxmin()
+                    st_esp, cor_esp = classificar_oms(v_aval, ref_esp.loc[[idx_esp]])
+                    st.markdown(f"<div class='status-box' style='background-color:{cor_esp}'>{nome_g}: {st_esp}</div>", unsafe_allow_html=True)
     
     else: # RELATÓRIO COLETIVO
         st.header(f"Panorama Coletivo - {aba_sel}")
-        df_exibir = df_atual[df_atual['peso_1'] > 0][['aluno', 'genero', 'idade_str', 'peso_1', 'altura_1']].copy()
-        st.dataframe(df_exibir, use_container_width=True)
+        st.dataframe(df_atual[df_atual['peso_1'] > 0][['aluno', 'genero', 'idade_str', 'peso_1', 'altura_1']], use_container_width=True)
 else:
-    st.warning("Aguardando os arquivos 'DADOS - OMC.xlsx' e 'referencias_oms_completo.csv' no GitHub.")
+    st.warning("Verifique os arquivos 'DADOS - OMC.xlsx' e 'referencias_oms_completo.csv'.")
