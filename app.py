@@ -68,18 +68,22 @@ def classificar_oms(peso, altura, curva_ref):
 @st.cache_data
 def carregar_dados():
     try:
-        # Carregamento ajustado para o seu CSV atualizado (sep ; e decimal ,)
+        # 1. Carregamento com separador ; e decimal , para o seu novo arquivo
         df_ref = pd.read_csv("referencias_oms_completo.csv", sep=';', decimal=',', on_bad_lines='skip')
-        # Limpeza básica de strings nas colunas de controle
+        
+        # 2. Correção do erro: Usamos .str.upper() para aplicar em toda a coluna (Series)
         if 'tipo' in df_ref.columns:
-            df_ref['tipo'] = df_ref['tipo'].str.strip().str.lower()
+            df_ref['tipo'] = df_ref['tipo'].astype(str).str.strip().str.lower()
         if 'genero' in df_ref.columns:
-            df_ref['genero'] = df_ref['genero'].str.strip().upper()
+            df_ref['genero'] = df_ref['genero'].astype(str).str.strip().str.upper()
             
+        # 3. Processa os nomes das colunas e converte números
         df_ref = preparar_dataframe(df_ref)
         
+        # 4. Carrega a planilha de alunos
         dict_turmas = pd.read_excel("DADOS - OMC.xlsx", sheet_name=None)
         turmas = {n: preparar_dataframe(d) for n, d in dict_turmas.items()}
+        
         return df_ref, turmas
     except Exception as e:
         st.error(f"Erro ao carregar arquivos: {e}")
