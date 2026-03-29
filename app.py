@@ -11,6 +11,9 @@ st.markdown(
     <style>
     .stApp { background-color: #F3E5F5; }
     [data-testid="stMetricValue"] { color: #4A148C; }
+    .status-sidebar {
+        color: white; padding: 10px; border-radius: 5px; text-align: center; font-weight: bold; margin-top: 10px;
+    }
     .status-box {
         padding: 5px; border-radius: 5px; text-align: center; font-weight: bold;
         color: white; font-size: 0.85rem; margin-top: -5px; margin-bottom: 15px;
@@ -50,6 +53,19 @@ def preparar_dataframe(df):
         df['idade_meses'] = df['idade_original'].apply(converter_idade_para_meses)
     return df
 
+def classificar_oms_geral(valor_y, ref_linha):
+    if ref_linha.empty: return "Sem Ref.", "#808080"
+    try:
+        v = float(valor_y)
+        ref = ref_linha.iloc[0]
+        if v < ref['z_3neg']: return "Muito Baixo / Magreza Ac.", "#8B0000"
+        elif v < ref['z_2neg']: return "Baixo / Magreza", "#FF4500"
+        elif v < ref['z_1pos']: return "Eutrofia", "#2E8B57"
+        elif v <= ref['z_2pos']: return "Risco de Sobrepeso", "#FFD700"
+        elif v <= ref['z_3pos']: return "Sobrepeso", "#FF8C00"
+        else: return "Obesidade", "#FF0000"
+    except: return "Erro", "#808080"
+
 @st.cache_data
 def carregar_dados():
     try:
@@ -61,47 +77,37 @@ def carregar_dados():
         turmas = {n: preparar_dataframe(d) for n, d in dict_turmas.items()}
         return df_ref, turmas
     except Exception as e:
-        st.error(f"Erro ao carregar: {e}"); return None, None
+        st.error(f"Erro: {e}"); return None, None
 
-def classificar_oms_geral(valor_y, ref_linha):
-    if ref_linha.empty: return "Sem Ref.", "#808080"
-    try:
-        v = float(valor_y)
-        ref = ref_linha.iloc[0]
-        if v < ref['z_3neg']: return "Magreza Ac.", "#8B0000"
-        elif v < ref['z_2neg']: return "Magreza/Baixo", "#FF4500"
-        elif v < ref['z_1pos']: return "Eutrofia", "#2E8B57"
-        elif v <= ref['z_2pos']: return "Risco Sobrep.", "#FFD700"
-        elif v <= ref['z_3pos']: return "Sobrepeso", "#FF8C00"
-        else: return "Obesidade", "#FF0000"
-    except: return "Erro", "#808080"
-
-# --- 3. LÓGICA DE GRÁFICOS ---
-def gerar_grafico_completo(tipo, gen, df_ref, medicoes):
+# --- 3. GERAÇÃO DE GRÁFICOS LADO A LADO ---
+def gerar_mini_grafico(tipo, gen, df_ref, medicoes):
     fig = go.Figure()
     curva = df_ref[(df_ref['genero'] == gen) & (df_ref['tipo'] == tipo)]
     col_x = 'altura' if tipo == 'peso_altura' else 'idade_meses'
     
-    # Linhas de Referência
+    # Linhas de Referência OMS
     for col_z, color in [('z_3pos', 'red'), ('z_2pos', 'orange'), ('z_0', 'green'), ('z_2neg', 'orange'), ('z_3neg', 'red')]:
-        fig.add_trace(go.Scatter(x=curva[col_x], y=curva[col_z], line=dict(color=color, width=1, dash='dot' if col_z!='z_0' else 'solid'), mode='lines', hoverinfo='skip', showlegend=False))
+        if col_z in curva.columns:
+            fig.add_trace(go.Scatter(x=curva[col_x], y=curva[col_z], line=dict(color=color, width=1, dash='dot' if col_z!='z_0' else 'solid'), mode='lines', hoverinfo='skip', showlegend=False))
     
-    # Pontos das Medições com Rótulos
+    # Pontos das Medições com Rótulos de Dados
     for m in medicoes:
         val_y = m['y_peso'] if 'peso' in tipo else (m['y_alt'] if 'estatura' in tipo else m['y_imc'])
         val_x = m['x_alt'] if tipo == 'peso_altura' else m['x_idade']
-        
         fig.add_trace(go.Scatter(
             x=[val_x], y=[val_y], mode='markers+text',
             text=[f"<b>{val_y}</b>"], textposition="top center",
-            marker=dict(size=10, color=m['cor'], line=dict(width=1, color='white')),
+            marker=dict(size=10, color=m['cor_base'], line=dict(width=1, color='white')),
             name=f"T{m['tri']}"
         ))
     
     fig.update_layout(title=f"<b>{tipo.replace('_',' ').upper()}</b>", height=280, margin=dict(l=10, r=10, t=40, b=10), template="plotly_white", showlegend=False)
     return fig
 
-# --- 4. EXECUÇÃO ---
+# --- 4. CABEÇALHO E EXECUÇÃO ---
+st.title("🍎 Acompanhamento Nutricional - O Mundo da Criança")
+st.markdown("##### pela Nutricionista Marina Malheiros Mendonça - CRN 5 21456 🍐🍒")
+
 df_ref, dict_turmas = carregar_dados()
 
 if df_ref is not None and dict_turmas:
@@ -116,7 +122,7 @@ if df_ref is not None and dict_turmas:
     if modo == "Ficha Individual":
         st.header(f"Ficha: {aluno_nome}")
         
-        # --- INPUTS TRIMESTRAIS ---
+        # --- ENTRADA TRIMESTRAL ---
         cols_tri = st.columns(4)
         lista_medicoes = []
         
@@ -128,13 +134,15 @@ if df_ref is not None and dict_turmas:
                 
                 if p > 0 and a > 0:
                     imc = round(p / ((a/100)**2), 2)
-                    # Classificação base (Peso/Estatura) para o box de cor
-                    curva_pa = df_ref[(df_ref['genero'] == gen) & (df_ref['tipo'] == 'peso_altura')]
-                    idx = (curva_pa['altura'] - a).abs().idxmin()
-                    status, cor = classificar_oms_geral(p, curva_pa.loc[[idx]])
+                    # Classificação de referência para a cor do ponto (usa Peso/Estatura como base)
+                    ref_curva = df_ref[(df_ref['genero'] == gen) & (df_ref['tipo'] == 'peso_altura')]
+                    idx_m = (ref_curva['altura'] - a).abs().idxmin()
+                    st_base, cor_base = classificar_oms_geral(p, ref_curva.loc[[idx_m]])
                     
-                    lista_medicoes.append({'tri': i+1, 'x_alt': a, 'x_idade': dados_base['idade_meses'], 'y_peso': p, 'y_alt': a, 'y_imc': imc, 'cor': cor})
-                    st.markdown(f"<div class='status-box' style='background-color:{cor};'>{status}</div>", unsafe_allow_html=True)
+                    lista_medicoes.append({'tri': i+1, 'x_alt': a, 'x_idade': dados_base['idade_meses'], 'y_peso': p, 'y_alt': a, 'y_imc': imc, 'cor_base': cor_base})
+                    
+                    if i == 0: # Atualiza Sidebar com o 1º Tri
+                        st.sidebar.markdown(f"<div class='status-sidebar' style='background-color:{cor_base};'>STATUS ATUAL:<br>{st_base}</div>", unsafe_allow_html=True)
 
         # --- GRADE DE GRÁFICOS 2x2 ---
         st.markdown("---")
@@ -143,13 +151,24 @@ if df_ref is not None and dict_turmas:
         
         for idx, p_nome in enumerate(params):
             with grade[idx % 2]:
-                fig_mini = gerar_grafico_completo(p_nome, gen, df_ref, lista_medicoes)
+                fig_mini = gerar_mini_grafico(p_nome, gen, df_ref, lista_medicoes)
                 st.plotly_chart(fig_mini, use_container_width=True)
+                
+                # Classificação específica abaixo de CADA gráfico
+                if lista_medicoes:
+                    m_recente = lista_medicoes[-1]
+                    val_y_m = m_recente['y_peso'] if 'peso' in p_nome else (m_recente['y_alt'] if 'estatura' in p_nome else m_recente['y_imc'])
+                    val_x_m = m_recente['x_alt'] if p_nome == 'peso_altura' else m_recente['x_idade']
+                    
+                    curva_especifica = df_ref[(df_ref['genero'] == gen) & (df_ref['tipo'] == p_nome)]
+                    col_x_esp = 'altura' if p_nome == 'peso_altura' else 'idade_meses'
+                    idx_esp = (curva_especifica[col_x_esp] - val_x_m).abs().idxmin()
+                    st_esp, cor_esp = classificar_oms_geral(val_y_m, curva_especifica.loc[[idx_esp]])
+                    
+                    st.markdown(f"<div class='status-box' style='background-color:{cor_esp};'>{st_esp}</div>", unsafe_allow_html=True)
 
     else:
-        # --- RELATÓRIO COLETIVO RESTAURADO ---
         st.header(f"📊 Panorama Coletivo: {aba_sel}")
+        # Lógica do coletivo para exibição de tabela rápida
         df_c = df_atual[df_atual['peso'] > 0].copy()
-        # Lógica simplificada de exibição coletiva
         st.dataframe(df_c[['aluno', 'genero', 'peso', 'altura', 'idade_original']], use_container_width=True)
-        st.info("O gráfico coletivo utiliza o parâmetro Peso por Estatura como padrão.")
