@@ -145,9 +145,16 @@ def gerar_mini_grafico(tipo, gen, df_ref, medicoes):
 # --- 3. GERAÇÃO DE GRÁFICOS ---
 def gerar_mini_grafico(tipo, gen, df_ref, medicoes):
     fig = go.Figure()
-    curva_base = df_ref[(df_ref['genero'] == gen) & (df_ref['tipo'] == tipo)]
+    # 1. Filtro base por gênero e tipo
+    curva_raw = df_ref[(df_ref['genero'] == str(gen).strip().upper()) & (df_ref['tipo'] == tipo)]
+    
     col_x = 'altura' if tipo == 'peso_altura' else 'idade_meses'
     
+    # --- LIMPEZA CRÍTICA: Remove zeros e nulos das CURVAS de referência ---
+    # Isso impede que o gráfico tente desenhar linhas saindo do valor 0
+    curva_base = curva_raw[curva_raw[col_x] > 0].copy()
+    
+    # 2. Lógica de escala mensal (Janela de 12 meses)
     if tipo != "peso_altura" and medicoes:
         idade_atual = float(medicoes[0]['x_idade'])
         min_x = max(0, idade_atual - 1)
@@ -158,23 +165,43 @@ def gerar_mini_grafico(tipo, gen, df_ref, medicoes):
         curva = curva_base
         dtick_val = None
 
+    # 3. Desenha as linhas de referência (APENAS se o valor Y também for > 0)
     if not curva.empty:
         for col_z, color in [('z_3pos', 'red'), ('z_2pos', 'orange'), ('z_0', 'green'), ('z_2neg', 'orange'), ('z_3neg', 'red')]:
             if col_z in curva.columns:
-                fig.add_trace(go.Scatter(x=curva[col_x], y=curva[col_z], line=dict(color=color, width=1, dash='dot' if col_z!='z_0' else 'solid'), mode='lines', hoverinfo='skip'))
+                # Filtramos a sub-curva para garantir que não existam zeros no eixo Y (Peso/Altura/IMC)
+                sub_curva = curva[curva[col_z] > 0]
+                
+                fig.add_trace(go.Scatter(
+                    x=sub_curva[col_x], 
+                    y=sub_curva[col_z], 
+                    line=dict(color=color, width=1, dash='dot' if col_z!='z_0' else 'solid'), 
+                    mode='lines', 
+                    hoverinfo='skip',
+                    connectgaps=False # Impede que o gráfico ligue pontos distantes se houver buracos
+                ))
     
+    # 4. Plotagem das aferições (Pontos do Aluno)
     for m in medicoes:
         val_y = m['y_peso'] if 'peso' in tipo else (m['y_alt'] if 'estatura' in tipo else m['y_imc'])
         val_x = m['x_alt'] if tipo == 'peso_altura' else m['x_idade']
-        fig.add_trace(go.Scatter(
-            x=[val_x], y=[val_y], mode='markers+text',
-            text=[f"<b>{val_y}</b>"], textposition="top center",
-            marker=dict(size=10, color=m['cor_base'], line=dict(width=1, color='white'))
-        ))
+        
+        if val_y > 0:
+            fig.add_trace(go.Scatter(
+                x=[val_x], y=[val_y], mode='markers+text',
+                text=[f"<b>{val_y}</b>"], textposition="top center",
+                marker=dict(size=10, color=m['cor_base'], line=dict(width=1, color='white'))
+            ))
     
-    fig.update_layout(title=f"<b>{tipo.replace('_',' ').upper()}</b>", height=280, margin=dict(l=10, r=10, t=40, b=10), template="plotly_white", showlegend=False, xaxis=dict(dtick=dtick_val))
+    fig.update_layout(
+        title=f"<b>{tipo.replace('_',' ').upper()}</b>", 
+        height=280, margin=dict(l=10, r=10, t=40, b=10), 
+        template="plotly_white", 
+        showlegend=False,
+        xaxis=dict(dtick=dtick_val, title="Idade (Meses)" if tipo != "peso_altura" else "Altura (cm)"),
+        yaxis=dict(rangemode="nonnegative") # Garante que o gráfico não mostre valores negativos
+    )
     return fig
-
 # --- 4. CABEÇALHO E EXECUÇÃO ---
 st.title("🍎 Acompanhamento Nutricional - O Mundo da Criança")
 st.markdown(f"##### pela Nutricionista Marina Malheiros Mendonça - CRN 5 21456 🍐🍒")
