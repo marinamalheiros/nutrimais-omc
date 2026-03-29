@@ -3,15 +3,21 @@ import pandas as pd
 import plotly.graph_objects as go
 import re
 
-# --- 1. CONFIGURAÇÃO DA PÁGINA ---
+# --- 1. CONFIGURAÇÃO DA PÁGINA E ESTILO ---
 st.set_page_config(page_title="NutriGestão - O Mundo da Criança", layout="wide")
 
 st.markdown(
     """
     <style>
     .stApp { background-color: #F3E5F5; }
-    .status-sidebar { color: white; padding: 10px; border-radius: 5px; text-align: center; font-weight: bold; margin-top: 10px; }
-    .status-box { padding: 5px; border-radius: 5px; text-align: center; font-weight: bold; color: white; font-size: 0.85rem; margin-top: -5px; margin-bottom: 15px; }
+    [data-testid="stMetricValue"] { color: #4A148C; }
+    .status-sidebar {
+        color: white; padding: 10px; border-radius: 5px; text-align: center; font-weight: bold; margin-top: 10px;
+    }
+    .status-box {
+        padding: 5px; border-radius: 5px; text-align: center; font-weight: bold;
+        color: white; font-size: 0.85rem; margin-top: -5px; margin-bottom: 15px;
+    }
     </style>
     """,
     unsafe_allow_html=True
@@ -38,15 +44,12 @@ def preparar_dataframe(df):
         elif 'genero' in c_lower or 'gênero' in c_lower: mapeamento[col] = 'genero'
         elif 'z_' in c_lower: mapeamento[col] = c_lower 
         elif 'idade' in c_lower: mapeamento[col] = 'idade_original'
-    
     df = df.rename(columns=mapeamento)
     cols_num = ['peso', 'altura', 'z_3neg', 'z_2neg', 'z_1neg', 'z_0', 'z_1pos', 'z_2pos', 'z_3pos']
-    
     for col in df.columns:
-        if col in cols_num or col.startswith('z_'):
-            df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', '.').str.strip(), errors='coerce')
-            
-    if 'idade_original' in df.columns and 'idade_meses' not in df.columns:
+        if col in cols_num:
+            df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', '.'), errors='coerce')
+    if 'idade_original' in df.columns:
         df['idade_meses'] = df['idade_original'].apply(converter_idade_para_meses)
     return df
 
@@ -66,79 +69,116 @@ def classificar_oms_geral(valor_y, ref_linha):
 @st.cache_data
 def carregar_dados():
     try:
+        # Carrega o CSV forçando o separador correto
         df_ref = pd.read_csv("referencias_oms_completo.csv", sep=';', decimal=',', on_bad_lines='skip')
+        
+        # --- LIMPEZA CRÍTICA DE GÊNERO E TIPO ---
         df_ref['tipo'] = df_ref['tipo'].astype(str).str.strip().str.lower()
-        # Limpeza agressiva de gênero para não sumir dados
-        df_ref['genero'] = df_ref['genero'].astype(str).str.strip().str.upper().map({'FEMININO': 'F', 'MASCULINO': 'M', 'F': 'F', 'M': 'M'})
+        # Remove espaços e garante que F e M fiquem padronizados
+        df_ref['genero'] = df_ref['genero'].astype(str).str.strip().str.upper()
+        
         df_ref = preparar_dataframe(df_ref)
+        
         dict_turmas = pd.read_excel("DADOS - OMC.xlsx", sheet_name=None)
         turmas = {n: preparar_dataframe(d) for n, d in dict_turmas.items()}
         return df_ref, turmas
     except Exception as e:
-        st.error(f"Erro: {e}"); return None, None
+        st.error(f"Erro ao carregar: {e}")
+        return None, None
 
-# --- 3. GERAÇÃO DE GRÁFICOS (EIXOS FIXOS E SEM ZEROS) ---
+# --- AJUSTE NA GERAÇÃO DO GRÁFICO ---
 def gerar_mini_grafico(tipo, gen, df_ref, medicoes):
     fig = go.Figure()
-    # Normaliza o gênero para busca
-    g_busca = 'F' if str(gen).strip().upper() in ['F', 'FEMININO'] else 'M'
+    # 1. Filtro base por gênero e tipo
+    curva_base = df_ref[(df_ref['genero'] == str(gen).strip().upper()) & (df_ref['tipo'] == tipo)]
     
-    curva_raw = df_ref[(df_ref['genero'] == g_busca) & (df_ref['tipo'] == tipo)].copy()
-    
-    # DEFINIÇÃO ESTÁTICA DOS EIXOS: X é sempre a base (Idade ou Altura)
     col_x = 'altura' if tipo == 'peso_altura' else 'idade_meses'
     
-    # Limpeza de zeros na referência
-    curva_base = curva_raw[(curva_raw[col_x] > 0) & (curva_raw['z_0'] > 0)].dropna(subset=[col_x, 'z_0'])
+    # 2. LIMPEZA DOS ZEROS: Remove linhas onde o eixo X é zero (evita o erro visual)
+    curva_base = curva_base[curva_base[col_x] > 0]
     
-    # Escala mensal fixa de 12 meses
+    # Lógica de escala mensal (Janela de 12 meses)
     if tipo != "peso_altura" and medicoes:
         idade_atual = float(medicoes[0]['x_idade'])
-        curva = curva_base[(curva_base[col_x] >= (idade_atual - 1)) & (curva_base[col_x] <= (idade_atual + 12))]
+        min_x = max(0, idade_atual - 1)
+        max_x = idade_atual + 12
+        curva = curva_base[(curva_base[col_x] >= min_x) & (curva_base[col_x] <= max_x)]
         dtick_val = 1 
     else:
         curva = curva_base
         dtick_val = None
 
-    # Linhas de referência
+    # Desenha as linhas de referência (apenas se houver dados válidos)
     if not curva.empty:
         for col_z, color in [('z_3pos', 'red'), ('z_2pos', 'orange'), ('z_0', 'green'), ('z_2neg', 'orange'), ('z_3neg', 'red')]:
             if col_z in curva.columns:
-                dados_linha = curva[curva[col_z] > 0].dropna(subset=[col_z])
-                if not dados_linha.empty:
-                    fig.add_trace(go.Scatter(
-                        x=dados_linha[col_x], y=dados_linha[col_z], 
-                        line=dict(color=color, width=1.5, dash='dot' if col_z!='z_0' else 'solid'), 
-                        mode='lines', hoverinfo='skip', connectgaps=False))
+                fig.add_trace(go.Scatter(
+                    x=curva[col_x], 
+                    y=curva[col_z], 
+                    line=dict(color=color, width=1, dash='dot' if col_z!='z_0' else 'solid'), 
+                    mode='lines', 
+                    hoverinfo='skip'
+                ))
     
-    # Pontos do Aluno
-    valores_y_aluno = []
+    # Plotagem das aferições (Pontos do Aluno)
     for m in medicoes:
         val_y = m['y_peso'] if 'peso' in tipo else (m['y_alt'] if 'estatura' in tipo else m['y_imc'])
         val_x = m['x_alt'] if tipo == 'peso_altura' else m['x_idade']
+        
+        # Só plota o ponto se o valor for maior que zero
         if val_y > 0:
-            valores_y_aluno.append(val_y)
             fig.add_trace(go.Scatter(
                 x=[val_x], y=[val_y], mode='markers+text',
                 text=[f"<b>{val_y}</b>"], textposition="top center",
-                marker=dict(size=12, color=m['cor_base'], line=dict(width=2, color='white'))))
+                marker=dict(size=10, color=m['cor_base'], line=dict(width=1, color='white'))
+            ))
     
-    # Configuração de Eixos (Zoom no Aluno)
-    yaxis_config = dict(gridcolor='lightgrey')
-    if valores_y_aluno:
-        min_y, max_y = min(valores_y_aluno), max(valores_y_aluno)
-        yaxis_config['range'] = [min_y * 0.85, max_y * 1.15]
-    else: yaxis_config['rangemode'] = "nonnegative"
-
     fig.update_layout(
-        title=f"<b>{tipo.replace('_',' ').upper()}</b>", height=300, 
-        margin=dict(l=10, r=10, t=40, b=10), template="plotly_white", showlegend=False,
-        xaxis=dict(dtick=dtick_val, title="Idade (Meses)" if tipo != "peso_altura" else "Altura (cm)", gridcolor='lightgrey'),
-        yaxis=yaxis_config
+        title=f"<b>{tipo.replace('_',' ').upper()}</b>", 
+        height=280, margin=dict(l=10, r=10, t=40, b=10), 
+        template="plotly_white", 
+        showlegend=False,
+        xaxis=dict(dtick=dtick_val, title="Idade (Meses)" if tipo != "peso_altura" else "Altura (cm)")
     )
     return fig
 
-# --- 4. EXECUÇÃO ---
+# --- 3. GERAÇÃO DE GRÁFICOS ---
+def gerar_mini_grafico(tipo, gen, df_ref, medicoes):
+    fig = go.Figure()
+    curva_base = df_ref[(df_ref['genero'] == gen) & (df_ref['tipo'] == tipo)]
+    col_x = 'altura' if tipo == 'peso_altura' else 'idade_meses'
+    
+    if tipo != "peso_altura" and medicoes:
+        idade_atual = float(medicoes[0]['x_idade'])
+        min_x = max(0, idade_atual - 1)
+        max_x = idade_atual + 12
+        curva = curva_base[(curva_base[col_x] >= min_x) & (curva_base[col_x] <= max_x)]
+        dtick_val = 1 
+    else:
+        curva = curva_base
+        dtick_val = None
+
+    if not curva.empty:
+        for col_z, color in [('z_3pos', 'red'), ('z_2pos', 'orange'), ('z_0', 'green'), ('z_2neg', 'orange'), ('z_3neg', 'red')]:
+            if col_z in curva.columns:
+                fig.add_trace(go.Scatter(x=curva[col_x], y=curva[col_z], line=dict(color=color, width=1, dash='dot' if col_z!='z_0' else 'solid'), mode='lines', hoverinfo='skip'))
+    
+    for m in medicoes:
+        val_y = m['y_peso'] if 'peso' in tipo else (m['y_alt'] if 'estatura' in tipo else m['y_imc'])
+        val_x = m['x_alt'] if tipo == 'peso_altura' else m['x_idade']
+        fig.add_trace(go.Scatter(
+            x=[val_x], y=[val_y], mode='markers+text',
+            text=[f"<b>{val_y}</b>"], textposition="top center",
+            marker=dict(size=10, color=m['cor_base'], line=dict(width=1, color='white'))
+        ))
+    
+    fig.update_layout(title=f"<b>{tipo.replace('_',' ').upper()}</b>", height=280, margin=dict(l=10, r=10, t=40, b=10), template="plotly_white", showlegend=False, xaxis=dict(dtick=dtick_val))
+    return fig
+
+# --- 4. CABEÇALHO E EXECUÇÃO ---
+st.title("🍎 Acompanhamento Nutricional - O Mundo da Criança")
+st.markdown(f"##### pela Nutricionista Marina Malheiros Mendonça - CRN 5 21456 🍐🍒")
+
 df_ref, dict_turmas = carregar_dados()
 
 if df_ref is not None and dict_turmas:
@@ -148,8 +188,7 @@ if df_ref is not None and dict_turmas:
     modo = st.sidebar.radio("Ver:", ["Ficha Individual", "Relatório Coletivo"])
 
     dados_base = df_atual[df_atual['aluno'] == aluno_nome].iloc[0]
-    gen_original = str(dados_base.get('genero', 'M')).strip().upper()
-    gen = 'F' if gen_original in ['F', 'FEMININO'] else 'M'
+    gen = "M" if "M" in str(dados_base.get('genero', 'M')).upper() else "F"
 
     if modo == "Ficha Individual":
         st.header(f"Ficha: {aluno_nome}")
@@ -165,10 +204,13 @@ if df_ref is not None and dict_turmas:
                 if p > 0 and a > 0:
                     imc = round(p / ((a/100)**2), 2)
                     curva_pa = df_ref[(df_ref['genero'] == gen) & (df_ref['tipo'] == 'peso_altura')]
+                    
                     if not curva_pa.empty:
+                        # Forçamos a conversão para float para evitar erro de Série
                         idx_m = (curva_pa['altura'].astype(float) - float(a)).abs().idxmin()
                         st_base, cor_base = classificar_oms_geral(p, curva_pa.loc[[idx_m]])
-                    else: st_base, cor_base = "Sem Dados", "#808080"
+                    else:
+                        st_base, cor_base = "Sem Dados", "#808080"
                     
                     lista_medicoes.append({'tri': i+1, 'x_alt': a, 'x_idade': dados_base['idade_meses'], 'y_peso': p, 'y_alt': a, 'y_imc': imc, 'cor_base': cor_base})
                     if i == 0:
@@ -187,13 +229,17 @@ if df_ref is not None and dict_turmas:
                     m = lista_medicoes[-1]
                     val_y_m = m['y_peso'] if 'peso' in p_nome else (m['y_alt'] if 'estatura' in p_nome else m['y_imc'])
                     val_x_m = float(m['x_alt'] if p_nome == 'peso_altura' else m['x_idade'])
+                    
                     curva_esp = df_ref[(df_ref['genero'] == gen) & (df_ref['tipo'] == p_nome)]
+                    col_x_esp = 'altura' if p_nome == 'peso_altura' else 'idade_meses'
+                    
                     if not curva_esp.empty:
-                        col_busca = 'altura' if p_nome == 'peso_altura' else 'idade_meses'
-                        temp_serie = (curva_esp[col_busca].astype(float) - val_x_m).abs()
+                        # Proteção extra: removemos NaNs e garantimos float antes do idxmin
+                        temp_serie = (curva_esp[col_x_esp].astype(float) - val_x_m).abs()
                         idx_esp = temp_serie.idxmin()
                         st_esp, cor_esp = classificar_oms_geral(val_y_m, curva_esp.loc[[idx_esp]])
-                    else: st_esp, cor_esp = "Sem Dados", "#808080"
+                    else:
+                        st_esp, cor_esp = "Sem Dados", "#808080"
                     st.markdown(f"<div class='status-box' style='background-color:{cor_esp};'>{st_esp}</div>", unsafe_allow_html=True)
     else:
         st.header(f"📊 Panorama Coletivo: {aba_sel}")
