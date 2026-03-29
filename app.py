@@ -103,7 +103,7 @@ if df_ref is not None and turmas:
                     if i == len(medicoes) - 1:
                         st.sidebar.markdown(f"<div class='status-sidebar' style='background-color:{cor};'>STATUS ATUAL:<br>{status}</div>", unsafe_allow_html=True)
 
-    # --- GRÁFICOS COM STATUS ABAIXO (CORREÇÃO DE LIMITES APLICADA) ---
+        # --- GRÁFICOS COM STATUS ABAIXO E LIMITES CORRIGIDOS ---
         st.divider()
         g_row = st.columns(2)
         params = [("peso_altura", "Peso x Altura"), ("imc_idade", "IMC x Idade"), ("peso_idade", "Peso x Idade"), ("estatura_idade", "Estatura x Idade")]
@@ -115,40 +115,26 @@ if df_ref is not None and turmas:
                 eixo_x = 'altura' if slug == 'peso_altura' else 'idade_meses'
                 curva = curva[curva[eixo_x] > 0].sort_values(by=eixo_x)
                 
-                # --- AJUSTE DE LIMITES DINÂMICOS (CORREÇÃO AQUI) ---
+                # --- AJUSTE DINÂMICO DE LIMITES ---
                 if slug != "peso_altura":
-                    idade_aluno = dados_aluno['idade_meses']
-                    # Garante que o gráfico mostre desde o nascimento (0) até 12 meses após a idade atual
-                    limite_inf = 0 
-                    limite_sup = idade_aluno + 12
+                    idade_atual = int(dados_aluno['idade_meses'])
+                    limite_inf = max(0, idade_atual - 2) 
+                    limite_sup = idade_atual + 13 
                     curva = curva[(curva[eixo_x] >= limite_inf) & (curva[eixo_x] <= limite_sup)]
                 else:
-                    # Para Peso x Altura, foca na estatura atual da criança com margem de 10cm
                     alt_aluno = float(dados_aluno['altura_1'])
-                    curva = curva[(curva[eixo_x] >= alt_aluno - 10) & (curva[eixo_x] <= alt_aluno + 20)]
+                    curva = curva[(curva[eixo_x] >= alt_aluno - 10) & (curva[eixo_x] <= alt_aluno + 25)]
 
-                # Desenho das curvas Z-score
-                z_map = [('z_3pos', 'red'), ('z_2pos', 'orange'), ('z_0', 'green'), ('z_2neg', 'orange'), ('z_3neg', 'red')]
-                for z_col, z_cor in z_map:
+                for z_col, z_cor in [('z_3pos', 'red'), ('z_2pos', 'orange'), ('z_0', 'green'), ('z_2neg', 'orange'), ('z_3neg', 'red')]:
                     fig.add_trace(go.Scatter(x=curva[eixo_x], y=curva[z_col], line=dict(color=z_cor, width=1.2, dash='dot' if '0' not in z_col else 'solid'), mode='lines', hoverinfo='skip'))
 
-                # Pontos das aferições do aluno
                 for m in medicoes:
                     vy = m['p'] if 'peso' in slug else (m['a'] if 'estatura' in slug else m['imc'])
                     vx = m['a'] if slug == 'peso_altura' else m['meses']
-                    fig.add_trace(go.Scatter(x=[vx], y=[vy], mode='markers+text', text=[f"{vy}"], textposition="top center", marker=dict(size=10, color=m['cor'], line=dict(width=1, color='white'))))
+                    fig.add_trace(go.Scatter(x=[vx], y=[vy], mode='markers+text', text=[f"<b>{vy}</b>"], textposition="top center", marker=dict(size=10, color=m['cor'], line=dict(width=1, color='white'))))
 
                 fig.update_layout(title=f"<b>{nome_g}</b>", height=350, template="plotly_white", showlegend=False, margin=dict(l=10,r=10,t=40,b=10))
                 st.plotly_chart(fig, use_container_width=True)
-                
-                # STATUS ESPECÍFICO ABAIXO DO GRÁFICO
-                if medicoes:
-                    m_atual = medicoes[-1]
-                    v_aval = m_atual['p'] if 'peso' in slug else (m_atual['a'] if 'estatura' in slug else m_atual['imc'])
-                    ref_esp = df_ref[(df_ref['tipo'] == slug) & (df_ref['genero'] == gen)]
-                    idx_esp = (ref_esp[eixo_x] - (m_atual['a'] if slug == 'peso_altura' else m_atual['meses'])).abs().idxmin()
-                    st_esp, cor_esp = classificar_oms(v_aval, ref_esp.loc[[idx_esp]])
-                    st.markdown(f"<div class='status-box' style='background-color:{cor_esp}'>{nome_g}: {st_esp}</div>", unsafe_allow_html=True)
                 
                 # --- STATUS ESPECÍFICO ABAIXO DO GRÁFICO ---
                 if medicoes:
