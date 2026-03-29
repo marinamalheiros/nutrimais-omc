@@ -40,10 +40,14 @@ def preparar_dataframe(df):
         elif 'idade' in c_lower: mapeamento[col] = 'idade_original'
     
     df = df.rename(columns=mapeamento)
-    cols_num = ['peso', 'altura', 'z_3neg', 'z_2neg', 'z_1neg', 'z_0', 'z_1pos', 'z_2pos', 'z_3pos']
+    # Garante conversão numérica correta para evitar inversão de eixos/linhas
+    cols_z = ['z_3neg', 'z_2neg', 'z_1neg', 'z_0', 'z_1pos', 'z_2pos', 'z_3pos']
+    cols_num = ['peso', 'altura'] + cols_z
+    
     for col in df.columns:
-        if col in cols_num or col.startswith('z_'):
+        if col in cols_num:
             df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', '.').str.strip(), errors='coerce')
+            
     if 'idade_original' in df.columns and 'idade_meses' not in df.columns:
         df['idade_meses'] = df['idade_original'].apply(converter_idade_para_meses)
     return df
@@ -53,6 +57,7 @@ def classificar_oms_geral(valor_y, ref_linha):
     try:
         v = float(valor_y)
         ref = ref_linha.iloc[0]
+        # Lógica rigorosa de comparação para evitar inversão visual
         if v < ref['z_3neg']: return "Muito Baixo / Magreza Ac.", "#8B0000"
         elif v < ref['z_2neg']: return "Baixo / Magreza", "#FF4500"
         elif v < ref['z_1pos']: return "Eutrofia", "#2E8B57"
@@ -64,29 +69,31 @@ def classificar_oms_geral(valor_y, ref_linha):
 @st.cache_data
 def carregar_dados():
     try:
+        # Carrega Referências
         df_ref = pd.read_csv("referencias_oms_completo.csv", sep=';', decimal=',', on_bad_lines='skip')
         df_ref['tipo'] = df_ref['tipo'].astype(str).str.strip().str.lower()
         df_ref['genero'] = df_ref['genero'].astype(str).str.strip().str.upper().replace({'FEMININO': 'F', 'MASCULINO': 'M'})
         df_ref = preparar_dataframe(df_ref)
+        
+        # Carrega Planilha do GitHub (Aferições Reais)
         dict_turmas = pd.read_excel("DADOS - OMC.xlsx", sheet_name=None)
         turmas = {n: preparar_dataframe(d) for n, d in dict_turmas.items()}
         return df_ref, turmas
     except Exception as e:
-        st.error(f"Erro na conexão com DADOS - OMC.xlsx: {e}"); return None, None
+        st.error(f"Erro Crítico: Verifique se os arquivos CSV e XLSX estão na raiz do GitHub. Detalhe: {e}")
+        return None, None
 
-# --- 3. GERAÇÃO DE GRÁFICOS (FIX PARA MENORES) ---
+# --- 3. GERAÇÃO DE GRÁFICOS (CORREÇÃO DE INVERSÃO) ---
 def gerar_mini_grafico(tipo, gen, df_ref, medicoes):
     fig = go.Figure()
     g_busca = 'F' if str(gen).strip().upper() in ['F', 'FEMININO'] else 'M'
     col_x = 'altura' if tipo == 'peso_altura' else 'idade_meses'
     
-    # FILTRO CRÍTICO: Se o gráfico não for peso_altura, ignoramos IDADE ZERO do CSV
     curva_raw = df_ref[(df_ref['genero'] == g_busca) & (df_ref['tipo'] == tipo)].copy()
     
-    if tipo != 'peso_altura':
-        curva_base = curva_raw[curva_raw['idade_meses'] > 0].copy()
-    else:
-        curva_base = curva_raw[curva_raw['altura'] > 0].copy()
+    # Filtro para evitar o erro das turmas menores (idade zero)
+    cond_zero = curva_raw['idade_meses'] > 0 if tipo != 'peso_altura' else curva_raw['altura'] > 0
+    curva_base = curva_raw[cond_zero].copy()
 
     if tipo != "peso_altura" and medicoes:
         idade_atual = float(medicoes[0]['x_idade'])
@@ -97,14 +104,20 @@ def gerar_mini_grafico(tipo, gen, df_ref, medicoes):
         dtick_val = None
 
     if not curva.empty:
-        for col_z, color in [('z_3pos', 'red'), ('z_2pos', 'orange'), ('z_0', 'green'), ('z_2neg', 'orange'), ('z_3neg', 'red')]:
+        # Ordem explícita das linhas para garantir que o vermelho fique no extremo e o verde no meio
+        linhas_config = [
+            ('z_3pos', 'red', 'dash'), ('z_2pos', 'orange', 'dash'),
+            ('z_0', 'green', 'solid'),
+            ('z_2neg', 'orange', 'dash'), ('z_3neg', 'red', 'dash')
+        ]
+        for col_z, color, style in linhas_config:
             if col_z in curva.columns:
-                dados_linha = curva[curva[col_z] > 0].dropna(subset=[col_z])
-                if not dados_linha.empty:
-                    fig.add_trace(go.Scatter(x=dados_linha[col_x], y=dados_linha[col_z], 
-                        line=dict(color=color, width=1.5, dash='dot' if col_z!='z_0' else 'solid'), 
-                        mode='lines', hoverinfo='skip', connectgaps=False))
+                df_line = curva[curva[col_z] > 0].sort_values(by=col_x)
+                fig.add_trace(go.Scatter(x=df_line[col_x], y=df_line[col_z], 
+                    line=dict(color=color, width=1.5, dash=style), 
+                    mode='lines', hoverinfo='skip', connectgaps=False))
     
+    # Pontos do Aluno (Dados reais da planilha)
     valores_y_aluno = []
     for m in medicoes:
         val_y = m['y_peso'] if 'peso' in tipo else (m['y_alt'] if 'estatura' in tipo else m['y_imc'])
@@ -115,10 +128,10 @@ def gerar_mini_grafico(tipo, gen, df_ref, medicoes):
                 text=[f"<b>{val_y}</b>"], textposition="top center",
                 marker=dict(size=12, color=m['cor_base'], line=dict(width=2, color='white'))))
     
-    yaxis_config = dict(gridcolor='lightgrey')
+    yaxis_config = dict(gridcolor='lightgrey', title="Peso (kg)" if "peso" in tipo else "Altura/IMC")
     if valores_y_aluno:
         min_y, max_y = min(valores_y_aluno), max(valores_y_aluno)
-        yaxis_config['range'] = [min_y * 0.85, max_y * 1.15]
+        yaxis_config['range'] = [min_y * 0.8, max_y * 1.2]
     else: yaxis_config['rangemode'] = "nonnegative"
 
     fig.update_layout(title=f"<b>{tipo.replace('_',' ').upper()}</b>", height=300, 
@@ -139,26 +152,34 @@ if df_ref is not None and dict_turmas:
     aluno_nome = st.sidebar.selectbox("Aluno:", sorted(df_atual['aluno'].dropna().unique()))
     modo = st.sidebar.radio("Ver:", ["Ficha Individual", "Relatório Coletivo"])
 
-    dados_base = df_atual[df_atual['aluno'] == aluno_nome].iloc[0]
-    gen_val = str(dados_base.get('genero', 'M')).strip().upper()
+    # LOCALIZAÇÃO DO ALUNO NA PLANILHA
+    dados_aluno_planilha = df_atual[df_atual['aluno'] == aluno_nome].iloc[0]
+    gen_val = str(dados_aluno_planilha.get('genero', 'M')).strip().upper()
     gen = 'F' if gen_val in ['F', 'FEMININO'] else 'M'
 
     if modo == "Ficha Individual":
         st.header(f"Ficha: {aluno_nome}")
         cols_tri = st.columns(4)
         lista_medicoes = []
+        
         for i, nome_tri in enumerate(["1º Tri", "2º Tri", "3º Tri", "4º Tri"]):
             with cols_tri[i]:
                 st.markdown(f"**{nome_tri}**")
-                p = st.number_input(f"Peso (kg)", value=float(dados_base['peso']) if i==0 else 0.0, key=f"p{i}")
-                a = st.number_input(f"Alt (cm)", value=float(dados_base['altura']) if i==0 else 0.0, key=f"a{i}")
+                # PUXANDO DADOS DA PLANILHA: O 1º Tri sempre vem do Excel.
+                # Se houver colunas peso_2, altura_2 etc no seu Excel, podemos mapear aqui.
+                val_p_excel = float(dados_aluno_planilha['peso']) if i==0 else 0.0
+                val_a_excel = float(dados_aluno_planilha['altura']) if i==0 else 0.0
+                
+                p = st.number_input(f"Peso (kg)", value=val_p_excel, key=f"p{i}")
+                a = st.number_input(f"Alt (cm)", value=val_a_excel, key=f"a{i}")
+                
                 if p > 0 and a > 0:
                     imc = round(p / ((a/100)**2), 2)
                     curva_pa = df_ref[(df_ref['genero'] == gen) & (df_ref['tipo'] == 'peso_altura')]
                     if not curva_pa.empty:
                         idx_m = (curva_pa['altura'].astype(float) - float(a)).abs().idxmin()
                         st_base, cor_base = classificar_oms_geral(p, curva_pa.loc[[idx_m]])
-                        lista_medicoes.append({'tri': i+1, 'x_alt': a, 'x_idade': dados_base['idade_meses'], 'y_peso': p, 'y_alt': a, 'y_imc': imc, 'cor_base': cor_base})
+                        lista_medicoes.append({'tri': i+1, 'x_alt': a, 'x_idade': dados_aluno_planilha['idade_meses'], 'y_peso': p, 'y_alt': a, 'y_imc': imc, 'cor_base': cor_base})
                         if i == 0: st.sidebar.markdown(f"<div class='status-sidebar' style='background-color:{cor_base};'>STATUS ATUAL:<br>{st_base}</div>", unsafe_allow_html=True)
 
         st.markdown("---")
