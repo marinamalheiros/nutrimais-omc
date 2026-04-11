@@ -30,7 +30,7 @@ def converter_idade_para_meses(texto_idade):
 def carregar_dados_sistema():
     try:
         # ATENÇÃO: Alterado para o nome do arquivo que você está usando agora
-        nome_arquivo_csv = "referencias_oms_completo ATUALIZADO.csv"
+        nome_arquivo_csv = "referencias_oms_completo.csv"
         
         # Verifica se o arquivo existe antes de tentar abrir
         if not os.path.exists(nome_arquivo_csv):
