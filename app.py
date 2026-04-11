@@ -129,4 +129,10 @@ if df_ref is not None and turmas:
                 eixo_x = 'altura' if slug == 'peso_altura' else 'idade_meses'
                 curva = curva[curva[eixo_x] > 0].sort_values(by=eixo_x)
 
-                for z_col, z_cor in [('z_3pos', 'red'), ('z_2pos', 'orange'), ('z_0', 'green'), ('z_2neg', 'orange'),
+                for z_col, z_cor in [('z_3pos', 'red'), ('z_2pos', 'orange'), ('z_0', 'green'), ('z_2neg', 'orange'), ('z_3neg', 'red')]:
+                    fig.add_trace(go.Scatter(x=curva[eixo_x], y=curva[z_col], line=dict(color=z_cor, width=1.2, dash='dot' if '0' not in z_col else 'solid'), mode='lines', hoverinfo='skip'))
+
+                for m in medicoes:
+                    vy = m['p'] if 'peso' in slug else (m['a'] if 'estatura' in slug else m['imc'])
+                    vx = m['a'] if slug == 'peso_altura' else m['meses']
+                    fig.add_trace(go.Scatter(x=[vx], y=[vy], mode='markers+text', text=[f"<b>{vy
