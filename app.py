@@ -29,15 +29,21 @@ def converter_idade_para_meses(texto_idade):
 @st.cache_data
 def carregar_dados_sistema():
     try:
-        # Lendo com tratamento de decimais e separador
-        df_ref = pd.read_csv("referencias_oms_completo.csv", sep=';', decimal=',')
+        # ATENÇÃO: Alterado para o nome do arquivo que você está usando agora
+        nome_arquivo_csv = "referencias_oms_completo ATUALIZADO.csv"
+        
+        # Verifica se o arquivo existe antes de tentar abrir
+        if not os.path.exists(nome_arquivo_csv):
+            st.error(f"Arquivo não encontrado: {nome_arquivo_csv}. Certifique-se de que o arquivo está na mesma pasta do script.")
+            return None, None
+
+        df_ref = pd.read_csv(nome_arquivo_csv, sep=';', decimal=',')
         cols_z = ['z_3neg', 'z_2neg', 'z_1neg', 'z_0', 'z_1pos', 'z_2pos', 'z_3pos']
         
-        # Converte colunas Z para numérico puro, forçando erros a virarem NaN
+        # Converte colunas Z para numérico puro
         for col in cols_z:
             df_ref[col] = pd.to_numeric(df_ref[col], errors='coerce')
         
-        # Garante que as colunas de busca também sejam numéricas
         df_ref['idade_meses'] = pd.to_numeric(df_ref['idade_meses'], errors='coerce')
         df_ref['altura'] = pd.to_numeric(df_ref['altura'], errors='coerce')
         
@@ -110,10 +116,11 @@ if df_ref is not None and turmas:
                 if p > 0 and a > 0:
                     imc = round(p / ((a/100)**2), 2)
                     ref_pa = df_ref[(df_ref['tipo'] == 'peso_altura') & (df_ref['genero'] == gen)]
-                    idx_m = (ref_pa['altura'] - a).abs().idxmin()
-                    status, cor = classificar_oms(p, ref_pa.loc[[idx_m]], 'peso_altura')
-                    medicoes.append({'p': p, 'a': a, 'imc': imc, 'cor': cor, 'status': status, 'meses': dados_aluno['idade_meses'] + (i*3)})
-                    st.markdown(f"<div class='status-box' style='background-color:{cor}'>{status}</div>", unsafe_allow_html=True)
+                    if not ref_pa.empty:
+                        idx_m = (ref_pa['altura'] - a).abs().idxmin()
+                        status, cor = classificar_oms(p, ref_pa.loc[[idx_m]], 'peso_altura')
+                        medicoes.append({'p': p, 'a': a, 'imc': imc, 'cor': cor, 'status': status, 'meses': dados_aluno['idade_meses'] + (i*3)})
+                        st.markdown(f"<div class='status-box' style='background-color:{cor}'>{status}</div>", unsafe_allow_html=True)
 
         st.divider()
         g_row = st.columns(2)
@@ -123,30 +130,25 @@ if df_ref is not None and turmas:
             with g_row[idx % 2]:
                 fig = go.Figure()
                 
-                # 1. Filtro rigoroso por tipo e gênero
                 curva = df_ref[(df_ref['tipo'] == slug) & (df_ref['genero'] == gen)].copy()
                 eixo_x = 'altura' if slug == 'peso_altura' else 'idade_meses'
                 
-                # 2. Remove linhas onde o eixo X é nulo ou zero e ordena
                 curva = curva.dropna(subset=[eixo_x])
                 curva = curva[curva[eixo_x] > 0].sort_values(by=eixo_x)
 
-                # 3. Desenho das curvas Z
                 for z_col, z_cor in [('z_3pos', 'red'), ('z_2pos', 'orange'), ('z_0', 'green'), ('z_2neg', 'orange'), ('z_3neg', 'red')]:
-                    # IMPORTANTE: Filtra apenas pontos válidos para cada linha específica
                     dados_plot = curva.dropna(subset=[z_col])
                     dados_plot = dados_plot[dados_plot[z_col] > 0]
                     
-                    fig.add_trace(go.Scatter(
-                        x=dados_plot[eixo_x], 
-                        y=dados_plot[z_col], 
-                        line=dict(color=z_cor, width=1.5, shape='spline'), 
-                        mode='lines',
-                        connectgaps=False, # Não conecta se houver buraco nos dados
-                        name=z_col
-                    ))
+                    if not dados_plot.empty:
+                        fig.add_trace(go.Scatter(
+                            x=dados_plot[eixo_x], 
+                            y=dados_plot[z_col], 
+                            line=dict(color=z_cor, width=1.5, shape='spline'), 
+                            mode='lines',
+                            connectgaps=False
+                        ))
 
-                # Pontos do Aluno
                 for m in medicoes:
                     vy = m['p'] if 'peso' in slug else (m['a'] if 'estatura' in slug else m['imc'])
                     vx = m['a'] if slug == 'peso_altura' else m['meses']
@@ -159,4 +161,4 @@ if df_ref is not None and turmas:
         st.header(f"Panorama Coletivo - {aba_sel}")
         st.dataframe(df_atual[df_atual['peso_1'] > 0][['aluno', 'genero', 'idade_str', 'peso_1', 'altura_1']], use_container_width=True)
 else:
-    st.warning("Verifique se os arquivos de dados estão na mesma pasta do código.")
+    st.info("Aguardando carregamento dos arquivos...")
