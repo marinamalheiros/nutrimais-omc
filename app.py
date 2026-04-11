@@ -31,8 +31,10 @@ def carregar_dados_sistema():
     try:
         nome_csv = "referencias_oms_completo ATUALIZADO.csv" if os.path.exists("referencias_oms_completo ATUALIZADO.csv") else "referencias_oms_completo.csv"
         df_ref = pd.read_csv(nome_csv, sep=';', decimal=',')
+        
         cols_z = ['z_3neg', 'z_2neg', 'z_1neg', 'z_0', 'z_1pos', 'z_2pos', 'z_3pos']
         for col in cols_z:
+            # Força a conversão para número, transformando erros em NaN (nulo)
             df_ref[col] = pd.to_numeric(df_ref[col].astype(str).str.replace(',', '.'), errors='coerce')
         
         arquivo_excel = "DADOS - OMC.xlsx"
@@ -50,7 +52,7 @@ def carregar_dados_sistema():
             turmas_prontas[nome_aba] = df
         return df_ref, turmas_prontas
     except Exception as e:
-        st.error(f"Erro: {e}")
+        st.error(f"Erro ao carregar dados: {e}")
         return None, None
 
 def classificar_oms(valor, ref_linha, tipo_indice):
@@ -81,7 +83,7 @@ df_ref, turmas = carregar_dados_sistema()
 
 if df_ref is not None and turmas:
     st.markdown("<h1 class='header-style'>🍎 NutriGestão - O Mundo da Criança</h1>", unsafe_allow_html=True)
-    st.markdown("<h3 class='header-style'>Nutricionista Marina Malheiros Mendonça - CRN 5 21456</h3>", unsafe_allow_html=True)
+    st.markdown(f"<h3 class='header-style'>Nutricionista Marina Malheiros Mendonça - CRN 5 21456</h3>", unsafe_allow_html=True)
     st.divider()
 
     aba_sel = st.sidebar.selectbox("Turma:", list(turmas.keys()))
@@ -123,35 +125,30 @@ if df_ref is not None and turmas:
                 curva = df_ref[(df_ref['tipo'] == slug) & (df_ref['genero'] == gen)].copy()
                 eixo_x = 'altura' if slug == 'peso_altura' else 'idade_meses'
                 
-                # DEFINIÇÃO DO INTERVALO (X_MIN) PARA CORTAR O MERGULHO
+                # Definindo limites de visualização
                 if slug != "peso_altura":
-                    x_start = max(0, int(dados_aluno['idade_meses']) - 2)
-                    x_end = x_start + 15
+                    x_min, x_max = max(0, int(dados_aluno['idade_meses']) - 3), int(dados_aluno['idade_meses']) + 15
                 else:
-                    x_start = float(dados_aluno['altura_1']) - 5
-                    x_end = x_start + 30
-
-                # FILTRO RADICAL: Só desenha o que estiver dentro do range visível
-                curva_filtrada = curva[(curva[eixo_x] >= x_start) & (curva[eixo_x] <= x_end)].sort_values(by=eixo_x)
+                    x_min, x_max = float(dados_aluno['altura_1']) - 10, float(dados_aluno['altura_1']) + 25
 
                 for z_col, z_cor in [('z_3pos', 'red'), ('z_2pos', 'orange'), ('z_0', 'green'), ('z_2neg', 'orange'), ('z_3neg', 'red')]:
-                    # Remove zeros para garantir que a linha não caia
-                    dados_plot = curva_filtrada[curva_filtrada[z_col] > 0]
+                    # LIMPEZA CRÍTICA: Ignora qualquer valor nulo, zero ou inválido na referência
+                    dados_plot = curva[curva[z_col] > 0.1].dropna(subset=[z_col, eixo_x])
+                    
                     if not dados_plot.empty:
                         fig.add_trace(go.Scatter(
                             x=dados_plot[eixo_x], y=dados_plot[z_col],
                             line=dict(color=z_cor, width=2, dash='dot' if '0' not in z_col else 'solid'),
-                            mode='lines', hoverinfo='skip'
+                            mode='lines', connectgaps=False, hoverinfo='skip'
                         ))
 
                 for m in medicoes:
                     vy = m['p'] if 'peso' in slug else (m['a'] if 'estatura' in slug else m['imc'])
                     vx = m['a'] if slug == 'peso_altura' else m['meses']
-                    if vx >= x_start: # Só plota se estiver no range
-                        fig.add_trace(go.Scatter(x=[vx], y=[vy], mode='markers+text', text=[f"<b>{vy}</b>"], textposition="top center", marker=dict(size=10, color=m['cor'])))
+                    fig.add_trace(go.Scatter(x=[vx], y=[vy], mode='markers+text', text=[f"<b>{vy}</b>"], textposition="top center", marker=dict(size=10, color=m['cor'], line=dict(width=1, color='white'))))
 
                 fig.update_layout(title=f"<b>{nome_g}</b>", height=350, template="plotly_white", showlegend=False, margin=dict(l=10,r=10,t=40,b=10))
-                fig.update_xaxes(range=[x_start, x_end])
+                fig.update_xaxes(range=[x_min, x_max])
                 st.plotly_chart(fig, use_container_width=True)
                 
                 if medicoes:
