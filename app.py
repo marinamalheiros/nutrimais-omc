@@ -29,12 +29,9 @@ def converter_idade_para_meses(texto_idade):
 @st.cache_data
 def carregar_dados_sistema():
     try:
-        nome_csv = "referencias_oms_completo ATUALIZADO.csv" if os.path.exists("referencias_oms_completo ATUALIZADO.csv") else "referencias_oms_completo.csv"
-        df_ref = pd.read_csv(nome_csv, sep=';', decimal=',')
-        
+        df_ref = pd.read_csv("referencias_oms_completo.csv", sep=';', decimal=',')
         cols_z = ['z_3neg', 'z_2neg', 'z_1neg', 'z_0', 'z_1pos', 'z_2pos', 'z_3pos']
         for col in cols_z:
-            # Força a conversão para número, transformando erros em NaN (nulo)
             df_ref[col] = pd.to_numeric(df_ref[col].astype(str).str.replace(',', '.'), errors='coerce')
         
         arquivo_excel = "DADOS - OMC.xlsx"
@@ -52,7 +49,7 @@ def carregar_dados_sistema():
             turmas_prontas[nome_aba] = df
         return df_ref, turmas_prontas
     except Exception as e:
-        st.error(f"Erro ao carregar dados: {e}")
+        st.error(f"Erro: {e}")
         return None, None
 
 def classificar_oms(valor, ref_linha, tipo_indice):
@@ -83,7 +80,7 @@ df_ref, turmas = carregar_dados_sistema()
 
 if df_ref is not None and turmas:
     st.markdown("<h1 class='header-style'>🍎 NutriGestão - O Mundo da Criança</h1>", unsafe_allow_html=True)
-    st.markdown(f"<h3 class='header-style'>Nutricionista Marina Malheiros Mendonça - CRN 5 21456</h3>", unsafe_allow_html=True)
+    st.markdown("<h3 class='header-style'>Nutricionista Marina Malheiros Mendonça - CRN 5 21456</h3>", unsafe_allow_html=True)
     st.divider()
 
     aba_sel = st.sidebar.selectbox("Turma:", list(turmas.keys()))
@@ -110,6 +107,7 @@ if df_ref is not None and turmas:
                     ref_pa = df_ref[(df_ref['tipo'] == 'peso_altura') & (df_ref['genero'] == gen)]
                     idx_m = (ref_pa['altura'] - a).abs().idxmin()
                     status, cor = classificar_oms(p, ref_pa.loc[[idx_m]], 'peso_altura')
+                    
                     medicoes.append({'p': p, 'a': a, 'imc': imc, 'cor': cor, 'status': status, 'meses': dados_aluno['idade_meses'] + (i*3)})
                     st.markdown(f"<div class='status-box' style='background-color:{cor}'>{status}</div>", unsafe_allow_html=True)
                     if i == len(medicoes) - 1:
@@ -122,30 +120,41 @@ if df_ref is not None and turmas:
         for idx, (slug, nome_g) in enumerate(params):
             with g_row[idx % 2]:
                 fig = go.Figure()
+                
+                # FILTRAGEM E ORDENAÇÃO PARA GARANTIR FLUIDEZ
                 curva = df_ref[(df_ref['tipo'] == slug) & (df_ref['genero'] == gen)].copy()
                 eixo_x = 'altura' if slug == 'peso_altura' else 'idade_meses'
                 
-                # Definindo limites de visualização
-                if slug != "peso_altura":
-                    x_min, x_max = max(0, int(dados_aluno['idade_meses']) - 3), int(dados_aluno['idade_meses']) + 15
-                else:
-                    x_min, x_max = float(dados_aluno['altura_1']) - 10, float(dados_aluno['altura_1']) + 25
+                # Filtra valores válidos e ordena pelo eixo X para evitar "idas e voltas" na linha
+                curva = curva[curva[eixo_x] > 0].sort_values(by=eixo_x)
 
+                # Desenho das curvas Z com Suavização e Proteção contra valores zerados
                 for z_col, z_cor in [('z_3pos', 'red'), ('z_2pos', 'orange'), ('z_0', 'green'), ('z_2neg', 'orange'), ('z_3neg', 'red')]:
-                    # LIMPEZA CRÍTICA: Ignora qualquer valor nulo, zero ou inválido na referência
-                    dados_plot = curva[curva[z_col] > 0.1].dropna(subset=[z_col, eixo_x])
+                    # Remove pontos específicos onde a coluna Z está zerada para a linha não cair
+                    dados_plot = curva[curva[z_col] > 0]
                     
-                    if not dados_plot.empty:
-                        fig.add_trace(go.Scatter(
-                            x=dados_plot[eixo_x], y=dados_plot[z_col],
-                            line=dict(color=z_cor, width=2, dash='dot' if '0' not in z_col else 'solid'),
-                            mode='lines', connectgaps=False, hoverinfo='skip'
-                        ))
+                    fig.add_trace(go.Scatter(
+                        x=dados_plot[eixo_x], 
+                        y=dados_plot[z_col], 
+                        line=dict(color=z_cor, width=1.5, shape='spline', dash='dot' if '0' not in z_col else 'solid'), 
+                        mode='lines', 
+                        connectgaps=False,
+                        hoverinfo='skip'
+                    ))
 
+                # Pontos das medições
                 for m in medicoes:
                     vy = m['p'] if 'peso' in slug else (m['a'] if 'estatura' in slug else m['imc'])
                     vx = m['a'] if slug == 'peso_altura' else m['meses']
                     fig.add_trace(go.Scatter(x=[vx], y=[vy], mode='markers+text', text=[f"<b>{vy}</b>"], textposition="top center", marker=dict(size=10, color=m['cor'], line=dict(width=1, color='white'))))
+
+                # Ajuste dinâmico de Eixos
+                if slug != "peso_altura":
+                    idade_aluno = int(dados_aluno['idade_meses'])
+                    x_min, x_max = max(0, idade_aluno - 3), idade_aluno + 15
+                else:
+                    alt_aluno = float(dados_aluno['altura_1'])
+                    x_min, x_max = alt_aluno - 10, alt_aluno + 25
 
                 fig.update_layout(title=f"<b>{nome_g}</b>", height=350, template="plotly_white", showlegend=False, margin=dict(l=10,r=10,t=40,b=10))
                 fig.update_xaxes(range=[x_min, x_max])
@@ -163,4 +172,4 @@ if df_ref is not None and turmas:
         st.header(f"Panorama Coletivo - {aba_sel}")
         st.dataframe(df_atual[df_atual['peso_1'] > 0][['aluno', 'genero', 'idade_str', 'peso_1', 'altura_1']], use_container_width=True)
 else:
-    st.warning("Verifique os arquivos de dados.")
+    st.warning("Verifique os arquivos 'DADOS - OMC.xlsx' e 'referencias_oms_completo.csv'.")
