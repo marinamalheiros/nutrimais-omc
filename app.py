@@ -52,33 +52,24 @@ def carregar_dados_sistema():
         st.error(f"Erro: {e}")
         return None, None
 
-def classificar_oms(valor, ref_linha, tipo_indice):
+def classificar_oms(valor, ref_linha):
     if ref_linha.empty: return "Sem Ref.", "#808080"
     r = ref_linha.iloc[0]
     try:
         v = float(valor)
-        if tipo_indice == 'estatura_idade':
-            if v < r['z_3neg']: return "Muito baixa estatura para a idade", "#8B0000"
-            elif v < r['z_2neg']: return "Baixa estatura para a idade", "#FF4500"
-            else: return "Estatura adequada para a idade", "#2E8B57"
-        elif tipo_indice == 'peso_idade':
-            if v < r['z_3neg']: return "Muito baixo peso para a idade", "#8B0000"
-            elif v < r['z_2neg']: return "Baixo peso para a idade", "#FF4500"
-            elif v < r['z_2pos']: return "Peso adequado para a idade", "#2E8B57"
-            else: return "Peso elevado para a idade", "#FF8C00"
-        else:
-            if v < r['z_3neg']: return "Magreza acentuada", "#8B0000"
-            elif v < r['z_2neg']: return "Magreza", "#FF4500"
-            elif v < r['z_1pos']: return "Eutrofia", "#2E8B57"
-            elif v < r['z_2pos']: return "Risco de sobrepeso", "#FFD700"
-            elif v < r['z_3pos']: return "Sobrepeso", "#FF8C00"
-            else: return "Obesidade", "#FF0000"
+        if v < r['z_3neg']: return "Muito Baixo / Magreza Ac.", "#8B0000"
+        elif v < r['z_2neg']: return "Baixo / Magreza", "#FF4500"
+        elif v < r['z_1pos']: return "Eutrofia", "#2E8B57"
+        elif v <= r['z_2pos']: return "Risco de Sobrepeso", "#FFD700"
+        elif v <= r['z_3pos']: return "Sobrepeso", "#FF8C00"
+        else: return "Obesidade", "#FF0000"
     except: return "Erro", "#808080"
 
 # --- 3. EXECUÇÃO ---
 df_ref, turmas = carregar_dados_sistema()
 
 if df_ref is not None and turmas:
+    # AJUSTE DE NOME COM A MESMA FONTE DO CABEÇALHO
     st.markdown("<h1 class='header-style'>🍎 NutriGestão - O Mundo da Criança</h1>", unsafe_allow_html=True)
     st.markdown("<h3 class='header-style'>Nutricionista Marina Malheiros Mendonça - CRN 5 21456</h3>", unsafe_allow_html=True)
     st.divider()
@@ -106,13 +97,14 @@ if df_ref is not None and turmas:
                     imc = round(p / ((a/100)**2), 2)
                     ref_pa = df_ref[(df_ref['tipo'] == 'peso_altura') & (df_ref['genero'] == gen)]
                     idx_m = (ref_pa['altura'] - a).abs().idxmin()
-                    status, cor = classificar_oms(p, ref_pa.loc[[idx_m]], 'peso_altura')
+                    status, cor = classificar_oms(p, ref_pa.loc[[idx_m]])
                     
                     medicoes.append({'p': p, 'a': a, 'imc': imc, 'cor': cor, 'status': status, 'meses': dados_aluno['idade_meses'] + (i*3)})
                     st.markdown(f"<div class='status-box' style='background-color:{cor}'>{status}</div>", unsafe_allow_html=True)
                     if i == len(medicoes) - 1:
                         st.sidebar.markdown(f"<div class='status-sidebar' style='background-color:{cor};'>STATUS ATUAL:<br>{status}</div>", unsafe_allow_html=True)
 
+        # --- GRÁFICOS COM CORREÇÃO DE LIMITES E STATUS ---
         st.divider()
         g_row = st.columns(2)
         params = [("peso_altura", "Peso x Altura"), ("imc_idade", "IMC x Idade"), ("peso_idade", "Peso x Idade"), ("estatura_idade", "Estatura x Idade")]
@@ -120,35 +112,22 @@ if df_ref is not None and turmas:
         for idx, (slug, nome_g) in enumerate(params):
             with g_row[idx % 2]:
                 fig = go.Figure()
-                
-                # FILTRAGEM E ORDENAÇÃO PARA GARANTIR FLUIDEZ
+                # Pega a curva completa para evitar quebras
                 curva = df_ref[(df_ref['tipo'] == slug) & (df_ref['genero'] == gen)].copy()
                 eixo_x = 'altura' if slug == 'peso_altura' else 'idade_meses'
-                
-                # Filtra valores válidos e ordena pelo eixo X para evitar "idas e voltas" na linha
                 curva = curva[curva[eixo_x] > 0].sort_values(by=eixo_x)
 
-                # Desenho das curvas Z com Suavização e Proteção contra valores zerados
+                # Desenho das curvas Z-score (sempre completas)
                 for z_col, z_cor in [('z_3pos', 'red'), ('z_2pos', 'orange'), ('z_0', 'green'), ('z_2neg', 'orange'), ('z_3neg', 'red')]:
-                    # Remove pontos específicos onde a coluna Z está zerada para a linha não cair
-                    dados_plot = curva[curva[z_col] > 0]
-                    
-                    fig.add_trace(go.Scatter(
-                        x=dados_plot[eixo_x], 
-                        y=dados_plot[z_col], 
-                        line=dict(color=z_cor, width=1.5, shape='spline', dash='dot' if '0' not in z_col else 'solid'), 
-                        mode='lines', 
-                        connectgaps=False,
-                        hoverinfo='skip'
-                    ))
+                    fig.add_trace(go.Scatter(x=curva[eixo_x], y=curva[z_col], line=dict(color=z_cor, width=1.2, dash='dot' if '0' not in z_col else 'solid'), mode='lines', hoverinfo='skip'))
 
-                # Pontos das medições
+                # Pontos das aferições do aluno
                 for m in medicoes:
                     vy = m['p'] if 'peso' in slug else (m['a'] if 'estatura' in slug else m['imc'])
                     vx = m['a'] if slug == 'peso_altura' else m['meses']
                     fig.add_trace(go.Scatter(x=[vx], y=[vy], mode='markers+text', text=[f"<b>{vy}</b>"], textposition="top center", marker=dict(size=10, color=m['cor'], line=dict(width=1, color='white'))))
 
-                # Ajuste dinâmico de Eixos
+                # --- AJUSTE DE LIMITES VIA UPDATE_XAXES (ZOOM DINÂMICO) ---
                 if slug != "peso_altura":
                     idade_aluno = int(dados_aluno['idade_meses'])
                     x_min, x_max = max(0, idade_aluno - 3), idade_aluno + 15
@@ -158,17 +137,19 @@ if df_ref is not None and turmas:
 
                 fig.update_layout(title=f"<b>{nome_g}</b>", height=350, template="plotly_white", showlegend=False, margin=dict(l=10,r=10,t=40,b=10))
                 fig.update_xaxes(range=[x_min, x_max])
+                
                 st.plotly_chart(fig, use_container_width=True)
                 
+                # --- STATUS ESPECÍFICO ABAIXO DO GRÁFICO ---
                 if medicoes:
                     m_atual = medicoes[-1]
                     v_aval = m_atual['p'] if 'peso' in slug else (m_atual['a'] if 'estatura' in slug else m_atual['imc'])
                     ref_esp = df_ref[(df_ref['tipo'] == slug) & (df_ref['genero'] == gen)]
                     idx_esp = (ref_esp[eixo_x] - (m_atual['a'] if slug == 'peso_altura' else m_atual['meses'])).abs().idxmin()
-                    st_esp, cor_esp = classificar_oms(v_aval, ref_esp.loc[[idx_esp]], slug)
+                    st_esp, cor_esp = classificar_oms(v_aval, ref_esp.loc[[idx_esp]])
                     st.markdown(f"<div class='status-box' style='background-color:{cor_esp}'>{nome_g}: {st_esp}</div>", unsafe_allow_html=True)
     
-    else: 
+    else: # RELATÓRIO COLETIVO
         st.header(f"Panorama Coletivo - {aba_sel}")
         st.dataframe(df_atual[df_atual['peso_1'] > 0][['aluno', 'genero', 'idade_str', 'peso_1', 'altura_1']], use_container_width=True)
 else:
