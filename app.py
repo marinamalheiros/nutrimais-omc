@@ -57,20 +57,15 @@ def classificar_oms(valor, ref_linha, tipo_indice):
     r = ref_linha.iloc[0]
     try:
         v = float(valor)
-        # 1. ESTATURA POR IDADE (E/I)
         if tipo_indice == 'estatura_idade':
             if v < r['z_3neg']: return "Muito baixa estatura para a idade", "#8B0000"
             elif v < r['z_2neg']: return "Baixa estatura para a idade", "#FF4500"
             else: return "Estatura adequada para a idade", "#2E8B57"
-        
-        # 2. PESO POR IDADE (P/I)
         elif tipo_indice == 'peso_idade':
             if v < r['z_3neg']: return "Muito baixo peso para a idade", "#8B0000"
             elif v < r['z_2neg']: return "Baixo peso para a idade", "#FF4500"
             elif v < r['z_2pos']: return "Peso adequado para a idade", "#2E8B57"
             else: return "Peso elevado para a idade", "#FF8C00"
-            
-        # 3. PESO/ESTATURA (P/E) OU IMC POR IDADE (IMC/I)
         else:
             if v < r['z_3neg']: return "Magreza acentuada", "#8B0000"
             elif v < r['z_2neg']: return "Magreza", "#FF4500"
@@ -129,9 +124,15 @@ if df_ref is not None and turmas:
                 eixo_x = 'altura' if slug == 'peso_altura' else 'idade_meses'
                 curva = curva[curva[eixo_x] > 0].sort_values(by=eixo_x)
 
-                # Desenho das curvas Z
+                # Desenho das curvas Z com Suavização (Simulando parâmetro L da OMS)
                 for z_col, z_cor in [('z_3pos', 'red'), ('z_2pos', 'orange'), ('z_0', 'green'), ('z_2neg', 'orange'), ('z_3neg', 'red')]:
-                    fig.add_trace(go.Scatter(x=curva[eixo_x], y=curva[z_col], line=dict(color=z_cor, width=1.2, dash='dot' if '0' not in z_col else 'solid'), mode='lines', hoverinfo='skip'))
+                    fig.add_trace(go.Scatter(
+                        x=curva[eixo_x], 
+                        y=curva[z_col], 
+                        line=dict(color=z_cor, width=1.5, shape='spline', dash='dot' if '0' not in z_col else 'solid'), 
+                        mode='lines', 
+                        hoverinfo='skip'
+                    ))
 
                 # Pontos das medições
                 for m in medicoes:
@@ -151,7 +152,6 @@ if df_ref is not None and turmas:
                 fig.update_xaxes(range=[x_min, x_max])
                 st.plotly_chart(fig, use_container_width=True)
                 
-                # Classificação específica abaixo do gráfico
                 if medicoes:
                     m_atual = medicoes[-1]
                     v_aval = m_atual['p'] if 'peso' in slug else (m_atual['a'] if 'estatura' in slug else m_atual['imc'])
@@ -160,7 +160,7 @@ if df_ref is not None and turmas:
                     st_esp, cor_esp = classificar_oms(v_aval, ref_esp.loc[[idx_esp]], slug)
                     st.markdown(f"<div class='status-box' style='background-color:{cor_esp}'>{nome_g}: {st_esp}</div>", unsafe_allow_html=True)
     
-    else: # RELATÓRIO COLETIVO
+    else: 
         st.header(f"Panorama Coletivo - {aba_sel}")
         st.dataframe(df_atual[df_atual['peso_1'] > 0][['aluno', 'genero', 'idade_str', 'peso_1', 'altura_1']], use_container_width=True)
 else:
