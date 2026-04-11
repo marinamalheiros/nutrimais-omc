@@ -129,5 +129,39 @@ if df_ref is not None and turmas:
                 eixo_x = 'altura' if slug == 'peso_altura' else 'idade_meses'
                 curva = curva[curva[eixo_x] > 0].sort_values(by=eixo_x)
 
+                # Desenho das curvas Z
                 for z_col, z_cor in [('z_3pos', 'red'), ('z_2pos', 'orange'), ('z_0', 'green'), ('z_2neg', 'orange'), ('z_3neg', 'red')]:
-                    fig.add_trace(go.Scatter(x=curva[eixo_x],
+                    fig.add_trace(go.Scatter(x=curva[eixo_x], y=curva[z_col], line=dict(color=z_cor, width=1.2, dash='dot' if '0' not in z_col else 'solid'), mode='lines', hoverinfo='skip'))
+
+                # Pontos das medições
+                for m in medicoes:
+                    vy = m['p'] if 'peso' in slug else (m['a'] if 'estatura' in slug else m['imc'])
+                    vx = m['a'] if slug == 'peso_altura' else m['meses']
+                    fig.add_trace(go.Scatter(x=[vx], y=[vy], mode='markers+text', text=[f"<b>{vy}</b>"], textposition="top center", marker=dict(size=10, color=m['cor'], line=dict(width=1, color='white'))))
+
+                # Ajuste de Eixos
+                if slug != "peso_altura":
+                    idade_aluno = int(dados_aluno['idade_meses'])
+                    x_min, x_max = max(0, idade_aluno - 3), idade_aluno + 15
+                else:
+                    alt_aluno = float(dados_aluno['altura_1'])
+                    x_min, x_max = alt_aluno - 10, alt_aluno + 25
+
+                fig.update_layout(title=f"<b>{nome_g}</b>", height=350, template="plotly_white", showlegend=False, margin=dict(l=10,r=10,t=40,b=10))
+                fig.update_xaxes(range=[x_min, x_max])
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # Classificação específica abaixo do gráfico
+                if medicoes:
+                    m_atual = medicoes[-1]
+                    v_aval = m_atual['p'] if 'peso' in slug else (m_atual['a'] if 'estatura' in slug else m_atual['imc'])
+                    ref_esp = df_ref[(df_ref['tipo'] == slug) & (df_ref['genero'] == gen)]
+                    idx_esp = (ref_esp[eixo_x] - (m_atual['a'] if slug == 'peso_altura' else m_atual['meses'])).abs().idxmin()
+                    st_esp, cor_esp = classificar_oms(v_aval, ref_esp.loc[[idx_esp]], slug)
+                    st.markdown(f"<div class='status-box' style='background-color:{cor_esp}'>{nome_g}: {st_esp}</div>", unsafe_allow_html=True)
+    
+    else: # RELATÓRIO COLETIVO
+        st.header(f"Panorama Coletivo - {aba_sel}")
+        st.dataframe(df_atual[df_atual['peso_1'] > 0][['aluno', 'genero', 'idade_str', 'peso_1', 'altura_1']], use_container_width=True)
+else:
+    st.warning("Verifique os arquivos 'DADOS - OMC.xlsx' e 'referencias_oms_completo.csv'.")
