@@ -29,7 +29,10 @@ def converter_idade_para_meses(texto_idade):
 @st.cache_data
 def carregar_dados_sistema():
     try:
-        df_ref = pd.read_csv("referencias_oms_completo.csv", sep=';', decimal=',')
+        # Tenta carregar o arquivo atualizado primeiro
+        nome_csv = "referencias_oms_completo ATUALIZADO.csv" if os.path.exists("referencias_oms_completo ATUALIZADO.csv") else "referencias_oms_completo.csv"
+        df_ref = pd.read_csv(nome_csv, sep=';', decimal=',')
+        
         cols_z = ['z_3neg', 'z_2neg', 'z_1neg', 'z_0', 'z_1pos', 'z_2pos', 'z_3pos']
         for col in cols_z:
             df_ref[col] = pd.to_numeric(df_ref[col].astype(str).str.replace(',', '.'), errors='coerce')
@@ -124,17 +127,24 @@ if df_ref is not None and turmas:
                 curva = df_ref[(df_ref['tipo'] == slug) & (df_ref['genero'] == gen)].copy()
                 eixo_x = 'altura' if slug == 'peso_altura' else 'idade_meses'
                 
-                # CORREÇÃO: Remove nulos e garante que o eixo X seja maior que zero
-                curva = curva[curva[eixo_x] > 0].sort_values(by=eixo_x)
+                # Definição dos limites de visualização ANTES de desenhar
+                if slug != "peso_altura":
+                    x_min, x_max = max(0, int(dados_aluno['idade_meses']) - 3), int(dados_aluno['idade_meses']) + 15
+                else:
+                    x_min, x_max = float(dados_aluno['altura_1']) - 10, float(dados_aluno['altura_1']) + 25
+
+                # PODA CRÍTICA: Remove do dataframe qualquer dado fora do que será exibido
+                # Isso impede que o gráfico tente conectar o ponto do mês 11 a um ponto invisível no mês 0
+                curva = curva[(curva[eixo_x] >= x_min) & (curva[eixo_x] <= x_max)].sort_values(by=eixo_x)
 
                 for z_col, z_cor in [('z_3pos', 'red'), ('z_2pos', 'orange'), ('z_0', 'green'), ('z_2neg', 'orange'), ('z_3neg', 'red')]:
-                    # CORREÇÃO: Filtra apenas pontos onde o Z-score é maior que zero para evitar o "mergulho"
+                    # Garante que não há valores zerados na coluna Z que causem mergulhos
                     dados_plot = curva[curva[z_col] > 0].dropna(subset=[z_col])
                     
                     fig.add_trace(go.Scatter(
                         x=dados_plot[eixo_x], 
                         y=dados_plot[z_col], 
-                        line=dict(color=z_cor, width=1.5, shape='linear', dash='dot' if '0' not in z_col else 'solid'), 
+                        line=dict(color=z_cor, width=2, shape='linear', dash='dot' if '0' not in z_col else 'solid'), 
                         mode='lines', 
                         connectgaps=False,
                         hoverinfo='skip'
@@ -144,13 +154,6 @@ if df_ref is not None and turmas:
                     vy = m['p'] if 'peso' in slug else (m['a'] if 'estatura' in slug else m['imc'])
                     vx = m['a'] if slug == 'peso_altura' else m['meses']
                     fig.add_trace(go.Scatter(x=[vx], y=[vy], mode='markers+text', text=[f"<b>{vy}</b>"], textposition="top center", marker=dict(size=10, color=m['cor'], line=dict(width=1, color='white'))))
-
-                if slug != "peso_altura":
-                    idade_aluno = int(dados_aluno['idade_meses'])
-                    x_min, x_max = max(0, idade_aluno - 3), idade_aluno + 15
-                else:
-                    alt_aluno = float(dados_aluno['altura_1'])
-                    x_min, x_max = alt_aluno - 10, alt_aluno + 25
 
                 fig.update_layout(title=f"<b>{nome_g}</b>", height=350, template="plotly_white", showlegend=False, margin=dict(l=10,r=10,t=40,b=10))
                 fig.update_xaxes(range=[x_min, x_max])
@@ -162,7 +165,7 @@ if df_ref is not None and turmas:
                     ref_esp = df_ref[(df_ref['tipo'] == slug) & (df_ref['genero'] == gen)]
                     idx_esp = (ref_esp[eixo_x] - (m_atual['a'] if slug == 'peso_altura' else m_atual['meses'])).abs().idxmin()
                     st_esp, cor_esp = classificar_oms(v_aval, ref_esp.loc[[idx_esp]], slug)
-                    st.markdown(f"<div class='status-box' style='background-color:{cor_esp}'>{nome_g}: {st_esp}</div>", unsafe_allow_html=True)
+                    st.markdown(f<div class='status-box' style='background-color:{cor_esp}'>{nome_g}: {st_esp}</div>, unsafe_allow_html=True)
     
     else: 
         st.header(f"Panorama Coletivo - {aba_sel}")
