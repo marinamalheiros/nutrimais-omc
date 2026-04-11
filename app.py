@@ -14,6 +14,7 @@ st.markdown("""
     .status-sidebar { color: white; padding: 15px; border-radius: 8px; text-align: center; font-weight: bold; margin-bottom: 20px; }
     .status-box { padding: 8px; border-radius: 5px; text-align: center; font-weight: bold; color: white; font-size: 0.85rem; margin-bottom: 10px; }
     .header-style { color: #4A148C; font-weight: bold; margin-bottom: 5px; }
+    .save-msg { color: #2E8B57; font-size: 0.8rem; font-weight: bold; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -22,16 +23,12 @@ st.markdown("""
 ARQUIVO_DATAS = "banco_datas.csv"
 
 def salvar_data_permanente(aluno, indice_tri, data_valor):
-    # Carrega o que já existe ou cria novo
     if os.path.exists(ARQUIVO_DATAS):
         df_datas = pd.read_csv(ARQUIVO_DATAS)
     else:
         df_datas = pd.DataFrame(columns=['aluno', 'trimestre', 'data'])
     
-    # Remove registro antigo do mesmo aluno/trimestre se houver
     df_datas = df_datas[~((df_datas['aluno'] == aluno) & (df_datas['trimestre'] == indice_tri))]
-    
-    # Adiciona o novo
     novo_dado = pd.DataFrame([{'aluno': aluno, 'trimestre': indice_tri, 'data': str(data_valor)}])
     df_datas = pd.concat([df_datas, novo_dado], ignore_index=True)
     df_datas.to_csv(ARQUIVO_DATAS, index=False)
@@ -130,22 +127,19 @@ if df_ref is not None and turmas:
             cols_tri = st.columns(4)
             medicoes = []
 
-            for i, tri in enumerate(["1º Tri (Planilha)", "2º Tri", "3º Tri", "4º Tri"]):
+            for i, tri in enumerate(["1º Tri", "2º Tri", "3º Tri", "4º Tri"]):
                 with cols_tri[i]:
                     st.subheader(tri)
-                    
-                    # BUSCA DATA SALVA NO ARQUIVO CSV
                     data_salva = buscar_data_permanente(aluno_nome, i)
                     
                     c1, c2 = st.columns([3, 1])
                     with c1:
                         data_input = st.date_input("Data Pesagem", value=data_salva, key=f"d_inp_{i}_{aluno_nome}")
                     with c2:
-                        st.write(" ") # Alinhamento
-                        if st.button("📌", key=f"btn_{i}_{aluno_nome}", help="Salvar permanentemente"):
+                        st.write(" ") 
+                        if st.button("📌", key=f"btn_{i}_{aluno_nome}"):
                             salvar_data_permanente(aluno_nome, i, data_input)
-                            st.success("Salvo!")
-                            # O st.rerun() não é necessário aqui pois o valor já está no input
+                            st.markdown("<p class='save-msg'>Salvo!</p>", unsafe_allow_html=True)
 
                     p = st.number_input(f"Peso (kg)", value=float(dados_aluno['peso_1']) if i == 0 else 0.0, key=f"p{i}_{aluno_nome}")
                     a = st.number_input(f"Alt (cm)", value=float(dados_aluno['altura_1']) if i == 0 else 0.0, key=f"a{i}_{aluno_nome}")
@@ -153,45 +147,36 @@ if df_ref is not None and turmas:
                     if p > 0 and a > 0:
                         meses_calc = calcular_meses_exatos(data_nasc.date(), data_input)
                         imc = round(p / ((a/100)**2), 2)
-                        
                         ref_pa = df_ref[(df_ref['tipo'] == 'peso_altura') & (df_ref['genero'] == gen)]
                         idx_m = (ref_pa['altura'] - a).abs().idxmin()
                         status, cor = classificar_oms(p, ref_pa.loc[[idx_m]], 'peso_altura')
-                        
                         medicoes.append({'p': p, 'a': a, 'imc': imc, 'cor': cor, 'status': status, 'meses': meses_calc})
                         st.markdown(f"<div class='status-box' style='background-color:{cor}'>{status}</div>", unsafe_allow_html=True)
-                        
                         if i == len(medicoes) - 1:
                             st.sidebar.markdown(f"<div class='status-sidebar' style='background-color:{cor};'>STATUS ATUAL:<br>{status}</div>", unsafe_allow_html=True)
 
             st.divider()
-            # GRÁFICOS
             g_row = st.columns(2)
             params = [("peso_altura", "Peso x Altura"), ("imc_idade", "IMC x Idade"), ("peso_idade", "Peso x Idade"), ("estatura_idade", "Estatura x Idade")]
-            
             for idx, (slug, nome_g) in enumerate(params):
                 with g_row[idx % 2]:
                     fig = go.Figure()
                     curva = df_ref[(df_ref['tipo'] == slug) & (df_ref['genero'] == gen)].copy()
                     eixo_x = 'altura' if slug == 'peso_altura' else 'idade_meses'
                     curva = curva[curva[eixo_x] > 0].sort_values(by=eixo_x)
-
                     for z_col, z_cor in [('z_3pos', 'red'), ('z_2pos', 'orange'), ('z_0', 'green'), ('z_2neg', 'orange'), ('z_3neg', 'red')]:
                         dados_plot = curva[curva[z_col] > 0]
                         fig.add_trace(go.Scatter(x=dados_plot[eixo_x], y=dados_plot[z_col], line=dict(color=z_cor, width=1.5, shape='spline', dash='dot' if '0' not in z_col else 'solid'), mode='lines', connectgaps=False, hoverinfo='skip'))
-
                     for m in medicoes:
                         vy = m['p'] if 'peso' in slug else (m['a'] if 'estatura' in slug else m['imc'])
                         vx = m['a'] if slug == 'peso_altura' else m['meses']
                         fig.add_trace(go.Scatter(x=[vx], y=[vy], mode='markers+text', text=[f"<b>{vy}</b>"], textposition="top center", marker=dict(size=10, color=m['cor'], line=dict(width=1, color='white'))))
-
                     if medicoes:
                         bx = medicoes[0]['meses']
                         x_min, x_max = (bx - 3, bx + 15) if slug != "peso_altura" else (medicoes[0]['a'] - 10, medicoes[0]['a'] + 25)
                         fig.update_layout(title=f"<b>{nome_g}</b>", height=350, template="plotly_white", showlegend=False, margin=dict(l=10,r=10,t=40,b=10))
                         fig.update_xaxes(range=[x_min, x_max])
                         st.plotly_chart(fig, use_container_width=True)
-                        
                         m_atual = medicoes[-1]
                         v_aval = m_atual['p'] if 'peso' in slug else (m_atual['a'] if 'estatura' in slug else m_atual['imc'])
                         ref_esp = df_ref[(df_ref['tipo'] == slug) & (df_ref['genero'] == gen)]
