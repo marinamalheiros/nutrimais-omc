@@ -75,4 +75,58 @@ def classificar_oms(valor, ref_linha, tipo_indice):
             if v < r['z_3neg']: return "Magreza acentuada", "#8B0000"
             elif v < r['z_2neg']: return "Magreza", "#FF4500"
             elif v < r['z_1pos']: return "Eutrofia", "#2E8B57"
-            elif v
+            elif v < r['z_2pos']: return "Risco de sobrepeso", "#FFD700"
+            elif v < r['z_3pos']: return "Sobrepeso", "#FF8C00"
+            else: return "Obesidade", "#FF0000"
+    except: return "Erro", "#808080"
+
+# --- 3. EXECUÇÃO ---
+df_ref, turmas = carregar_dados_sistema()
+
+if df_ref is not None and turmas:
+    st.markdown("<h1 class='header-style'>🍎 NutriGestão - O Mundo da Criança</h1>", unsafe_allow_html=True)
+    st.markdown("<h3 class='header-style'>Nutricionista Marina Malheiros Mendonça - CRN 5 21456</h3>", unsafe_allow_html=True)
+    st.divider()
+
+    aba_sel = st.sidebar.selectbox("Turma:", list(turmas.keys()))
+    df_atual = turmas[aba_sel]
+    aluno_nome = st.sidebar.selectbox("Aluno:", sorted(df_atual['aluno'].unique()))
+    modo = st.sidebar.radio("Navegação:", ["Ficha Individual", "Relatório Coletivo"])
+    
+    dados_aluno = df_atual[df_atual['aluno'] == aluno_nome].iloc[0]
+    gen = 'F' if str(dados_aluno['genero']).upper().startswith('F') else 'M'
+
+    if modo == "Ficha Individual":
+        st.header(f"Ficha: {aluno_nome}")
+        cols_tri = st.columns(4)
+        medicoes = []
+
+        for i, tri in enumerate(["1º Tri (Planilha)", "2º Tri", "3º Tri", "4º Tri"]):
+            with cols_tri[i]:
+                st.subheader(tri)
+                p = st.number_input(f"Peso (kg)", value=float(dados_aluno['peso_1']) if i == 0 else 0.0, key=f"p{i}_{aluno_nome}")
+                a = st.number_input(f"Alt (cm)", value=float(dados_aluno['altura_1']) if i == 0 else 0.0, key=f"a{i}_{aluno_nome}")
+                
+                if p > 0 and a > 0:
+                    imc = round(p / ((a/100)**2), 2)
+                    ref_pa = df_ref[(df_ref['tipo'] == 'peso_altura') & (df_ref['genero'] == gen)]
+                    idx_m = (ref_pa['altura'] - a).abs().idxmin()
+                    status, cor = classificar_oms(p, ref_pa.loc[[idx_m]], 'peso_altura')
+                    
+                    medicoes.append({'p': p, 'a': a, 'imc': imc, 'cor': cor, 'status': status, 'meses': dados_aluno['idade_meses'] + (i*3)})
+                    st.markdown(f"<div class='status-box' style='background-color:{cor}'>{status}</div>", unsafe_allow_html=True)
+                    if i == len(medicoes) - 1:
+                        st.sidebar.markdown(f"<div class='status-sidebar' style='background-color:{cor};'>STATUS ATUAL:<br>{status}</div>", unsafe_allow_html=True)
+
+        st.divider()
+        g_row = st.columns(2)
+        params = [("peso_altura", "Peso x Altura"), ("imc_idade", "IMC x Idade"), ("peso_idade", "Peso x Idade"), ("estatura_idade", "Estatura x Idade")]
+        
+        for idx, (slug, nome_g) in enumerate(params):
+            with g_row[idx % 2]:
+                fig = go.Figure()
+                curva = df_ref[(df_ref['tipo'] == slug) & (df_ref['genero'] == gen)].copy()
+                eixo_x = 'altura' if slug == 'peso_altura' else 'idade_meses'
+                curva = curva[curva[eixo_x] > 0].sort_values(by=eixo_x)
+
+                for z_col, z_cor in [('z_3pos', 'red'), ('z_2pos', 'orange'), ('z_0', 'green'), ('z_2neg', 'orange'),
