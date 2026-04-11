@@ -6,7 +6,7 @@ import os
 from datetime import datetime
 
 # --- 1. CONFIGURAÇÃO E ESTILO ---
-st.set_page_config(page_title="NutriGestão - Marina Malheiros", layout="wide")
+st.set_page_config(page_title="NutriMais - Marina Malheiros", layout="wide")
 
 st.markdown("""
     <style>
@@ -75,8 +75,7 @@ def carregar_dados_sistema():
             df['peso_1'] = pd.to_numeric(df['peso_1'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0.0)
             df['altura_1'] = pd.to_numeric(df['altura_1'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0.0)
             
-            # --- AJUSTE PARA LER DIFERENTES FORMATOS DE DATA ---
-            # Tenta converter automaticamente; se falhar (como no caso de 04/02/2025), usa o dayfirst=True
+            # Ajuste para ler diferentes formatos de data (Anthony e outros)
             df['nasc_data'] = pd.to_datetime(df['nasc_data'], errors='coerce', dayfirst=True)
             
             turmas_prontas[nome_aba] = df
@@ -112,7 +111,7 @@ def classificar_oms(valor, ref_linha, tipo_indice):
 df_ref, turmas = carregar_dados_sistema()
 
 if df_ref is not None and turmas:
-    st.markdown("<h1 class='header-style'>🍎 NutriGestão - O Mundo da Criança</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 class='header-style'>🍎 NutriMais - O Mundo da Criança</h1>", unsafe_allow_html=True)
     st.markdown("<h3 class='header-style'>Nutricionista Marina Malheiros Mendonça - CRN 5 21456</h3>", unsafe_allow_html=True)
     st.divider()
 
