@@ -38,7 +38,10 @@ def buscar_data_permanente(aluno, indice_tri):
         df_datas = pd.read_csv(ARQUIVO_DATAS)
         res = df_datas[(df_datas['aluno'] == aluno) & (df_datas['trimestre'] == indice_tri)]
         if not res.empty:
-            return datetime.strptime(res.iloc[0]['data'], '%Y-%m-%d').date()
+            try:
+                return datetime.strptime(res.iloc[0]['data'], '%Y-%m-%d').date()
+            except:
+                return datetime.now().date()
     return datetime.now().date()
 
 def calcular_meses_exatos(data_nasc, data_afericao):
@@ -71,7 +74,11 @@ def carregar_dados_sistema():
             df = df.rename(columns=mapeamento)
             df['peso_1'] = pd.to_numeric(df['peso_1'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0.0)
             df['altura_1'] = pd.to_numeric(df['altura_1'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0.0)
-            df['nasc_data'] = pd.to_datetime(df['nasc_data'], errors='coerce')
+            
+            # --- AJUSTE PARA LER DIFERENTES FORMATOS DE DATA ---
+            # Tenta converter automaticamente; se falhar (como no caso de 04/02/2025), usa o dayfirst=True
+            df['nasc_data'] = pd.to_datetime(df['nasc_data'], errors='coerce', dayfirst=True)
+            
             turmas_prontas[nome_aba] = df
         return df_ref, turmas_prontas
     except Exception as e:
