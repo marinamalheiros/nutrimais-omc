@@ -120,17 +120,25 @@ if df_ref is not None and turmas:
         for idx, (slug, nome_g) in enumerate(params):
             with g_row[idx % 2]:
                 fig = go.Figure()
+                
+                # FILTRAGEM E ORDENAÇÃO PARA GARANTIR FLUIDEZ
                 curva = df_ref[(df_ref['tipo'] == slug) & (df_ref['genero'] == gen)].copy()
                 eixo_x = 'altura' if slug == 'peso_altura' else 'idade_meses'
+                
+                # Filtra valores válidos e ordena pelo eixo X para evitar "idas e voltas" na linha
                 curva = curva[curva[eixo_x] > 0].sort_values(by=eixo_x)
 
-                # Desenho das curvas Z com Suavização (Simulando parâmetro L da OMS)
+                # Desenho das curvas Z com Suavização e Proteção contra valores zerados
                 for z_col, z_cor in [('z_3pos', 'red'), ('z_2pos', 'orange'), ('z_0', 'green'), ('z_2neg', 'orange'), ('z_3neg', 'red')]:
+                    # Remove pontos específicos onde a coluna Z está zerada para a linha não cair
+                    dados_plot = curva[curva[z_col] > 0]
+                    
                     fig.add_trace(go.Scatter(
-                        x=curva[eixo_x], 
-                        y=curva[z_col], 
+                        x=dados_plot[eixo_x], 
+                        y=dados_plot[z_col], 
                         line=dict(color=z_cor, width=1.5, shape='spline', dash='dot' if '0' not in z_col else 'solid'), 
                         mode='lines', 
+                        connectgaps=False,
                         hoverinfo='skip'
                     ))
 
@@ -140,7 +148,7 @@ if df_ref is not None and turmas:
                     vx = m['a'] if slug == 'peso_altura' else m['meses']
                     fig.add_trace(go.Scatter(x=[vx], y=[vy], mode='markers+text', text=[f"<b>{vy}</b>"], textposition="top center", marker=dict(size=10, color=m['cor'], line=dict(width=1, color='white'))))
 
-                # Ajuste de Eixos
+                # Ajuste dinâmico de Eixos
                 if slug != "peso_altura":
                     idade_aluno = int(dados_aluno['idade_meses'])
                     x_min, x_max = max(0, idade_aluno - 3), idade_aluno + 15
