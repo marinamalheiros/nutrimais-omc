@@ -688,10 +688,12 @@ salvar_dados(st.session_state.dados)
 
 if medicoes_validas:
     ultimo = medicoes_validas[-1]
-    cor_texto_sb = "white" if ultimo["cor"] != "#FFD700" else "#333"
+    cor_ultimo = ultimo["cor"]
+    status_ultimo = ultimo["status"]
+    cor_texto_sb = "white" if cor_ultimo != "#FFD700" else "#333"
     st.sidebar.markdown(
-        f"<div class='status-sidebar' style='background-color:{ultimo[\"cor\"]}; color:{cor_texto_sb};'>"
-        f"STATUS ATUAL<br>{ultimo['status']}</div>",
+        f"<div class='status-sidebar' style='background-color:{cor_ultimo}; color:{cor_texto_sb};'>"
+        f"STATUS ATUAL<br>{status_ultimo}</div>",
         unsafe_allow_html=True
     )
 
