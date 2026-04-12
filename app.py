@@ -1,10 +1,12 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import numpy as np
 import plotly.graph_objects as go
 from datetime import datetime, date
 import json
 import os
 import base64
+import html as html_mod
 
 st.set_page_config(
     page_title="NutriMais - Marina Malheiros",
@@ -526,73 +528,99 @@ if modo == "\U0001F4CA Controle Coletivo":
     </div>
     """, unsafe_allow_html=True)
 
-    tabela_html = """
-    <table style="width:100%; border-collapse:collapse; font-size:0.88rem; border-radius:10px; overflow:hidden; box-shadow:0 2px 12px rgba(106,27,154,0.12);">
-    <thead>
-    <tr style="background:#6A1B9A; color:white; font-size:0.85rem;">
-        <th style="padding:11px 10px; text-align:left;">Nome</th>
-        <th style="padding:11px 8px;">Sexo</th>
-        <th style="padding:11px 8px;">Nascimento</th>
-        <th style="padding:11px 8px;">Idade Atual</th>
-        <th style="padding:11px 8px;">Ultima Afericao</th>
-        <th style="padding:11px 8px;">Peso (kg)</th>
-        <th style="padding:11px 8px;">Altura (cm)</th>
-        <th style="padding:11px 8px;">IMC</th>
-        <th style="padding:11px 14px; text-align:center;">Diagnostico Nutricional</th>
-    </tr>
-    </thead>
-    <tbody>
-    """
-
+    linhas_html = []
     hoje = date.today()
+
     for i, nome in enumerate(criancas_turma):
-        c = get_crianca(st.session_state.dados, nome)
-        sexo_c = c.get("sexo", "M")
-        sexo_label = "M" if sexo_c == "M" else "F"
-        nasc_str = c.get("data_nascimento", "")
         try:
-            nasc_date = datetime.strptime(nasc_str, "%Y-%m-%d").date()
-            nasc_fmt = nasc_date.strftime("%d/%m/%Y")
-            idade_atual = round((hoje - nasc_date).days / 30.44, 0)
-            idade_txt = f"{int(idade_atual)} meses"
-        except Exception:
-            nasc_fmt = "-"
-            idade_txt = "-"
+            c = get_crianca(st.session_state.dados, nome)
+            sexo_c = c.get("sexo", "M")
+            sexo_label = "M" if sexo_c == "M" else "F"
+            nasc_str = c.get("data_nascimento", "")
+            try:
+                nasc_date = datetime.strptime(nasc_str, "%Y-%m-%d").date()
+                nasc_fmt = nasc_date.strftime("%d/%m/%Y")
+                idade_atual = int(round((hoje - nasc_date).days / 30.44, 0))
+                idade_txt = f"{idade_atual} meses"
+            except Exception:
+                nasc_fmt = "-"
+                idade_txt = "-"
 
-        status, cor, ultima = diagnostico_principal(c, refs)
+            status, cor, ultima = diagnostico_principal(c, refs)
 
-        if ultima:
-            afericao_txt = datetime.strptime(ultima["data"], "%Y-%m-%d").strftime("%d/%m/%Y") if ultima["data"] else "-"
-            peso_txt = f"{ultima['peso']:.1f}"
-            altura_txt = f"{ultima['altura']:.1f}"
-            imc_txt = f"{ultima['imc']:.1f}"
-        else:
-            afericao_txt = "-"
-            peso_txt = "-"
-            altura_txt = "-"
-            imc_txt = "-"
+            if ultima:
+                try:
+                    afericao_txt = datetime.strptime(ultima["data"], "%Y-%m-%d").strftime("%d/%m/%Y")
+                except Exception:
+                    afericao_txt = "-"
+                peso_txt = f"{ultima['peso']:.1f}"
+                altura_txt = f"{ultima['altura']:.1f}"
+                imc_txt = f"{ultima['imc']:.1f}"
+            else:
+                afericao_txt = "-"
+                peso_txt = "-"
+                altura_txt = "-"
+                imc_txt = "-"
 
-        cor_texto = "white" if cor not in ["#FFD700"] else "#333"
-        bg_linha = "#FAF0FF" if i % 2 == 0 else "white"
+            cor_texto = "white" if cor != "#FFD700" else "#333"
+            bg_linha = "#FAF0FF" if i % 2 == 0 else "white"
+            nome_safe = html_mod.escape(nome)
+            status_safe = html_mod.escape(status)
 
-        tabela_html += f"""
-        <tr style="background:{bg_linha}; border-bottom:1px solid #E1BEE7;">
-            <td style="padding:9px 10px; font-weight:600; color:#4A148C;">{nome}</td>
-            <td style="padding:9px 8px; text-align:center;">{sexo_label}</td>
-            <td style="padding:9px 8px; text-align:center;">{nasc_fmt}</td>
-            <td style="padding:9px 8px; text-align:center;">{idade_txt}</td>
-            <td style="padding:9px 8px; text-align:center;">{afericao_txt}</td>
-            <td style="padding:9px 8px; text-align:center;">{peso_txt}</td>
-            <td style="padding:9px 8px; text-align:center;">{altura_txt}</td>
-            <td style="padding:9px 8px; text-align:center;">{imc_txt}</td>
-            <td style="padding:9px 14px; text-align:center;">
-                <span style="background:{cor}; color:{cor_texto}; padding:5px 10px; border-radius:7px; font-weight:bold; font-size:0.8rem; display:inline-block; width:100%; box-sizing:border-box;">{status}</span>
-            </td>
-        </tr>
-        """
+            linhas_html.append(f"""
+            <tr style="background:{bg_linha}; border-bottom:1px solid #E1BEE7;">
+                <td style="padding:9px 10px; font-weight:600; color:#4A148C;">{nome_safe}</td>
+                <td style="padding:9px 8px; text-align:center;">{sexo_label}</td>
+                <td style="padding:9px 8px; text-align:center;">{nasc_fmt}</td>
+                <td style="padding:9px 8px; text-align:center;">{idade_txt}</td>
+                <td style="padding:9px 8px; text-align:center;">{afericao_txt}</td>
+                <td style="padding:9px 8px; text-align:center;">{peso_txt}</td>
+                <td style="padding:9px 8px; text-align:center;">{altura_txt}</td>
+                <td style="padding:9px 8px; text-align:center;">{imc_txt}</td>
+                <td style="padding:9px 14px; text-align:center;">
+                    <span style="background:{cor}; color:{cor_texto}; padding:5px 10px; border-radius:7px; font-weight:bold; font-size:0.8rem; display:inline-block; min-width:160px; box-sizing:border-box;">{status_safe}</span>
+                </td>
+            </tr>""")
+        except Exception as err:
+            linhas_html.append(f'<tr><td colspan="9" style="color:red; padding:8px;">{html_mod.escape(nome)}: erro ao processar ({html_mod.escape(str(err))})</td></tr>')
 
-    tabela_html += "</tbody></table>"
-    st.markdown(tabela_html, unsafe_allow_html=True)
+    altura_iframe = max(200, len(criancas_turma) * 46 + 140)
+
+    tabela_completa = f"""<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body {{ margin:0; padding:0; font-family: 'Segoe UI', sans-serif; background: transparent; }}
+  table {{ width:100%; border-collapse:collapse; font-size:0.88rem; box-shadow:0 2px 12px rgba(106,27,154,0.15); border-radius:10px; overflow:hidden; }}
+  th {{ padding:11px 8px; background:#6A1B9A; color:white; font-size:0.84rem; white-space:nowrap; }}
+  th:first-child {{ text-align:left; padding-left:12px; }}
+  td {{ vertical-align:middle; }}
+</style>
+</head>
+<body>
+<table>
+<thead>
+<tr>
+  <th style="text-align:left;">Nome</th>
+  <th>Sexo</th>
+  <th>Nascimento</th>
+  <th>Idade Atual</th>
+  <th>Última Aferição</th>
+  <th>Peso (kg)</th>
+  <th>Altura (cm)</th>
+  <th>IMC</th>
+  <th>Diagnóstico Nutricional</th>
+</tr>
+</thead>
+<tbody>
+{"".join(linhas_html)}
+</tbody>
+</table>
+</body>
+</html>"""
+
+    components.html(tabela_completa, height=altura_iframe, scrolling=True)
     st.stop()
 
 # =====================================================================
