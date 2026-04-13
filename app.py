@@ -7,6 +7,7 @@ import json
 import os
 import base64
 import html as html_mod
+import math
 
 st.set_page_config(
     page_title="NutriMais - Marina Malheiros",
@@ -114,9 +115,9 @@ def gerar_referencias_oms():
         [0.09295,0.08800,0.08400,0.08300,0.08200,0.08140,0.08110,0.08015,0.07920,0.07870,0.07825,0.07800,0.07802,0.07810,0.07820,0.07900,0.08000,0.08150,0.08320,0.08700,0.09300,0.09900,0.10500,0.11100,0.11600,0.12000,0.12200,0.12300,0.12200,0.12000,0.11800,0.11600,0.11400], 228)
     a = [45,50,55,60,65,70,75,80,85,90,95,100,105,110,115,120]
     refs[("M","peso_estatura")] = _tab_altura(a,
-        [-0.3521,-0.3000,-0.2500,-0.2000,-0.1500,-0.1000,-0.0500,0.0000,0.1000,0.1500,0.2000,0.2500,0.3000,0.3000,0.2500,0.2000],
-        [2.4410,3.1500,4.4000,5.6000,6.9000,8.1000,9.2000,10.3000,11.5000,12.6000,13.8000,15.1000,16.5000,17.8000,19.4000,21.1000],
-        [0.09200,0.09100,0.09000,0.08900,0.08800,0.08700,0.08600,0.08500,0.08400,0.08500,0.08600,0.08700,0.08800,0.09000,0.09200,0.09400])
+        [-0.3521]*16,
+        [2.4410,3.4640,4.7520,6.0990,7.3760,8.5480,9.6180,10.5890,11.4870,12.3520,13.2330,14.1820,15.2600,16.5220,17.9980,19.7260],
+        [0.09323,0.09027,0.08606,0.08366,0.08325,0.08428,0.08581,0.08750,0.08887,0.09006,0.09145,0.09357,0.09680,0.10128,0.10682,0.11334])
     m = [0,1,2,3,4,5,6,9,12,15,18,21,24,30,36,42,48,54,60,72,84,96,108,120]
     refs[("F","peso_idade")] = _tab_meses(m,
         [-0.3833,-0.1800,0.0100,-0.0900,-0.1300,-0.0600,0.1500,0.2500,0.3600,0.4000,0.4200,0.4200,0.4200,0.3600,0.3000,0.2000,0.1000,-0.0100,-0.1200,-0.3500,-0.5500,-0.7000,-0.8200,-0.9000],
@@ -132,9 +133,9 @@ def gerar_referencias_oms():
         [0.09300,0.08800,0.08500,0.08312,0.08200,0.08180,0.08160,0.08100,0.08071,0.08050,0.08037,0.08020,0.08167,0.08200,0.08230,0.08300,0.08400,0.08600,0.08800,0.09300,0.09900,0.10600,0.11200,0.11700,0.12000,0.12100,0.12000,0.11800,0.11600,0.11400,0.11200,0.11000,0.10900], 228)
     a = [45,50,55,60,65,70,75,80,85,90,95,100,105,110,115,120]
     refs[("F","peso_estatura")] = _tab_altura(a,
-        [-0.3833,-0.3200,-0.2600,-0.2000,-0.1400,-0.0800,-0.0200,0.0400,0.1000,0.1600,0.2200,0.2600,0.2800,0.2600,0.2000,0.1400],
-        [2.3600,3.0500,4.2000,5.4000,6.7000,7.9000,9.0000,10.1000,11.3000,12.4000,13.6000,14.9000,16.3000,17.7000,19.3000,21.0000],
-        [0.09100,0.09000,0.08950,0.08900,0.08850,0.08800,0.08780,0.08780,0.08800,0.08900,0.09000,0.09100,0.09200,0.09400,0.09600,0.09800])
+        [-0.3833]*16,
+        [2.4360,3.3950,4.6080,5.8360,7.0230,8.1010,9.0860,10.0190,10.9340,11.8760,12.8860,13.9900,15.2050,16.5540,18.0540,19.7260],
+        [0.09445,0.09024,0.08620,0.08375,0.08303,0.08378,0.08502,0.08640,0.08778,0.08926,0.09129,0.09414,0.09779,0.10229,0.10748,0.11325])
     return refs
 
 
@@ -229,11 +230,50 @@ def classificar_nutricional(valor, limites, tipo_indice, idade_meses=0):
     elif tipo_indice == "peso_estatura":
         if v < limites[-3]: return "Magreza acentuada", "#8B0000"
         elif v < limites[-2]: return "Magreza", "#FF4500"
-        elif v <= limites[1]: return "Eutrofia", "#2E8B57"
-        elif v <= limites[2]: return "Risco de sobrepeso", "#FFD700"
+        elif v <= limites[2]: return "Eutrofia", "#2E8B57"
         elif v <= limites[3]: return "Sobrepeso", "#FF8C00"
         else: return "Obesidade", "#FF0000"
     return "Sem classificacao", "#808080"
+
+
+def calcular_zscore_val(ref_data, eixo_val, tipo_eixo, valor):
+    try:
+        eixo = ref_data[tipo_eixo]
+        L = float(np.interp(eixo_val, eixo, ref_data["_L"]))
+        M = float(np.interp(eixo_val, eixo, ref_data["_M"]))
+        S = float(np.interp(eixo_val, eixo, ref_data["_S"]))
+        if M <= 0 or S <= 0:
+            return None
+        if abs(L) > 0.001:
+            z = ((valor / M) ** L - 1) / (L * S)
+        else:
+            z = math.log(valor / M) / S
+        return round(float(z), 2)
+    except Exception:
+        return None
+
+
+def zscore_para_percentil(z):
+    if z is None:
+        return None
+    z_c = max(-8.0, min(8.0, float(z)))
+    p = 0.5 * (1.0 + math.erf(z_c / math.sqrt(2.0)))
+    return round(p * 100.0, 1)
+
+
+def formatar_percentil(z):
+    p = zscore_para_percentil(z)
+    if p is None:
+        return "-"
+    if p < 0.1:
+        return "< P0,1"
+    if p < 1.0:
+        return "< P1"
+    if p > 99.9:
+        return "> P99,9"
+    if p > 99.0:
+        return "> P99"
+    return f"P{p:.0f}"
 
 
 def diagnostico_principal(crianca, refs):
@@ -259,13 +299,15 @@ def diagnostico_principal(crianca, refs):
     imc = round(peso / ((altura / 100) ** 2), 2)
 
     ref_imc = refs.get((sexo, "imc_idade"))
+    z_val = None
     if ref_imc and 0 <= meses <= 228:
         lim = obter_limites(ref_imc, meses, "meses")
         status, cor = classificar_nutricional(imc, lim, "imc_idade", meses)
+        z_val = calcular_zscore_val(ref_imc, meses, "meses", imc)
     else:
         status, cor = "Fora da faixa", "#808080"
 
-    return status, cor, {"peso": peso, "altura": altura, "imc": imc, "meses": meses, "data": data_med}
+    return status, cor, {"peso": peso, "altura": altura, "imc": imc, "meses": meses, "data": data_med, "z": z_val}
 
 
 def gerar_grafico(ref_data, medicoes_plot, titulo, eixo_x_campo, eixo_y_campo, label_x, label_y, tipo_indice, sexo, idades_list=None):
@@ -566,6 +608,14 @@ if modo == "\U0001F4CA Controle Coletivo":
             bg_linha = "#FAF0FF" if i % 2 == 0 else "white"
             nome_safe = html_mod.escape(nome)
             status_safe = html_mod.escape(status)
+            z_col = ultima.get("z") if ultima else None
+            if z_col is not None:
+                sinal_col = "+" if z_col >= 0 else ""
+                z_str = f"{sinal_col}{z_col:.2f} DP"
+                p_col = formatar_percentil(z_col)
+                diag_extra = f"<br><small style='font-weight:normal; font-size:0.72rem; opacity:0.92;'>z={z_str} | {p_col}</small>"
+            else:
+                diag_extra = ""
 
             linhas_html.append(f"""
             <tr style="background:{bg_linha}; border-bottom:1px solid #E1BEE7;">
@@ -578,7 +628,7 @@ if modo == "\U0001F4CA Controle Coletivo":
                 <td style="padding:9px 8px; text-align:center;">{altura_txt}</td>
                 <td style="padding:9px 8px; text-align:center;">{imc_txt}</td>
                 <td style="padding:9px 14px; text-align:center;">
-                    <span style="background:{cor}; color:{cor_texto}; padding:5px 10px; border-radius:7px; font-weight:bold; font-size:0.8rem; display:inline-block; min-width:160px; box-sizing:border-box;">{status_safe}</span>
+                    <span style="background:{cor}; color:{cor_texto}; padding:5px 10px; border-radius:7px; font-weight:bold; font-size:0.8rem; display:inline-block; min-width:160px; box-sizing:border-box;">{status_safe}{diag_extra}</span>
                 </td>
             </tr>""")
         except Exception as err:
@@ -681,15 +731,18 @@ for i in range(4):
             st.markdown(f"<div class='info-box'>\U0001F4C5 <b>Idade:</b> {meses} meses<br>\U0001F4CA <b>IMC:</b> {imc}</div>", unsafe_allow_html=True)
 
             ref_imc = refs.get((sexo, "imc_idade"))
+            z_card = None
             if ref_imc and 0 <= meses <= 228:
                 lim_imc = obter_limites(ref_imc, meses, "meses")
                 status_txt, status_cor = classificar_nutricional(imc, lim_imc, "imc_idade", meses)
+                z_card = calcular_zscore_val(ref_imc, meses, "meses", imc)
             else:
                 ref_pe = refs.get((sexo, "peso_estatura"))
                 eixo_alt = ref_pe["altura"] if ref_pe else [0, 1]
                 if ref_pe and eixo_alt[0] <= altura <= eixo_alt[-1]:
                     lim_pe = obter_limites(ref_pe, altura, "altura")
                     status_txt, status_cor = classificar_nutricional(peso, lim_pe, "peso_estatura")
+                    z_card = calcular_zscore_val(ref_pe, altura, "altura", peso)
                 else:
                     status_txt, status_cor = "Fora da faixa", "#808080"
 
@@ -698,6 +751,14 @@ for i in range(4):
                 f"<div class='status-box' style='background-color:{status_cor}; color:{cor_texto_status};'>{status_txt}</div>",
                 unsafe_allow_html=True
             )
+            if z_card is not None:
+                sinal = "+" if z_card >= 0 else ""
+                p_str = formatar_percentil(z_card)
+                st.markdown(
+                    f"<div class='info-box' style='font-size:0.78rem; padding:5px 10px; margin-top:-4px;'>"
+                    f"Escore-Z (OMS/MS): <b>{sinal}{z_card:.2f} DP</b> &nbsp;|&nbsp; Percentil: <b>{p_str}</b></div>",
+                    unsafe_allow_html=True
+                )
             medicoes_validas.append({
                 "meses": meses, "peso": peso, "altura": altura,
                 "imc": imc, "data": str(data_med), "status": status_txt, "cor": status_cor
@@ -767,5 +828,13 @@ if medicoes_validas:
                     f"<div class='status-box' style='background-color:{cor_class}; color:{cor_tx}'>{titulo}: {st_class}</div>",
                     unsafe_allow_html=True
                 )
+                z_g = calcular_zscore_val(ref, vx, tipo_eixo, vy)
+                if z_g is not None:
+                    sinal_g = "+" if z_g >= 0 else ""
+                    st.markdown(
+                        f"<div class='info-box' style='font-size:0.78rem; padding:5px 10px; margin-top:-4px;'>"
+                        f"Escore-Z (OMS/MS): <b>{sinal_g}{z_g:.2f} DP</b> &nbsp;|&nbsp; Percentil: <b>{formatar_percentil(z_g)}</b></div>",
+                        unsafe_allow_html=True
+                    )
 else:
     st.info("Preencha pelo menos uma medicao (peso e altura) para visualizar as curvas de crescimento.")
