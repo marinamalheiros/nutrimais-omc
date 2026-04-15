@@ -565,13 +565,8 @@ def main_app():
 
         st.divider()
 
-        pagina = st.radio("Navegacao", ["📋 Sistema", "📊 Controle Coletivo"] + (["⚙️ Usuarios"] if user["role"] == "admin" else []),
+        pagina = st.radio("Navegacao", ["📋 Sistema", "📊 Controle Coletivo"],
                           label_visibility="collapsed")
-
-        if pagina == "⚙️ Usuarios":
-            conn.close()
-            admin_panel()
-            return
 
         st.divider()
 
@@ -640,21 +635,35 @@ def main_app():
                         st.success(f'{novo_nome.strip()} cadastrado(a)!')
                         st.rerun()
 
-    if pagina == "⚙️ Usuarios":
-        conn.close()
-        return
-
     header_parts = ["🍎 NutriMais"]
     if grupo_sel and turma_sel:
         header_parts.append(f" | {grupo_sel['nome']} — {turma_sel['nome']}")
-    header_col, home_col = st.columns([5, 1])
+    if user["role"] == "admin":
+        header_col, users_col, home_col = st.columns([4, 1, 1])
+    else:
+        header_col, home_col = st.columns([5, 1])
     with header_col:
         st.markdown(f"<div class='nutri-header'><h2 style='color:#4A148C; margin:0;'>{''.join(header_parts)}</h2></div>", unsafe_allow_html=True)
+    if user["role"] == "admin":
+        with users_col:
+            st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
+            if st.button("⚙️ Usuarios", use_container_width=True, key="btn_usuarios_topo"):
+                st.session_state.show_users_panel = True
+                st.rerun()
     with home_col:
         st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
         if st.button("🏠 Tela inicial", use_container_width=True, key="btn_voltar_home_topo"):
             st.session_state.screen = "home"
+            st.session_state.show_users_panel = False
             st.rerun()
+
+    if user["role"] == "admin" and st.session_state.get("show_users_panel"):
+        if st.button("← Voltar ao sistema", key="btn_voltar_sistema_admin"):
+            st.session_state.show_users_panel = False
+            st.rerun()
+        conn.close()
+        admin_panel()
+        return
 
     if not grupo_sel:
         st.markdown("""
@@ -982,10 +991,11 @@ def home_page():
         st.markdown("### Bem-vinda ao NutriMais!")
         st.markdown("Sistema completo de avaliacao e acompanhamento nutricional com curvas de crescimento da OMS e Ministerio da Saude.")
 
-        st.info("📂 **Passo 1:** Crie um **Grupo** (ex: escola, clinica, UBS)")
-        st.info("📋 **Passo 2:** Adicione **Turmas** dentro do grupo")
-        st.info("👶 **Passo 3:** Cadastre as **Criancas** na turma")
-        st.info("📊 **Passo 4:** Registre as **Medicoes** e acompanhe pelas curvas da OMS")
+        if user["role"] != "visitor":
+            st.info("📂 **Passo 1:** Crie um **Grupo** (ex: escola, clinica, UBS)")
+            st.info("📋 **Passo 2:** Adicione **Turmas** dentro do grupo")
+            st.info("👶 **Passo 3:** Cadastre as **Criancas** na turma")
+            st.info("📊 **Passo 4:** Registre as **Medicoes** e acompanhe pelas curvas da OMS")
 
         if st.button("Acessar o Sistema →", use_container_width=True, type="primary"):
             st.session_state.screen = "app"
