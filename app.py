@@ -62,6 +62,8 @@ st.markdown("""
 DB_PATH = "nutrimais.db"
 IMLA_GROUP_NAME = "Instituto Mãe Lalu"
 IMLA_LOGO_PATHS = ["imla_logo.png", "logo_imla.png", "instituto_mae_lalu.png", "logo_instituto_mae_lalu.png"]
+
+# ✅ AJUSTE 2: Cor do botão "Cirandando pelo Mundo" confirmada como #6741d9
 IMLA_TURMA_COLORS = {
     "Turma Rosa": "#ff81ba",
     "Turma Amarela": "#ffc713",
@@ -69,6 +71,19 @@ IMLA_TURMA_COLORS = {
     "Turma Azul": "#5cc6d0",
     "Turma Cirandando pelo Mundo": "#6741d9",
 }
+
+# ✅ LOGO: URL da logo da Marina Malheiros (hospedada no GitHub junto com o app)
+MARINA_LOGO_PATH = "logo_marina.jpg"  # Coloque a imagem com este nome na raiz do repositório
+
+def get_logo_b64(path):
+    """Retorna a logo em base64 se o arquivo existir."""
+    if os.path.exists(path):
+        ext = os.path.splitext(path)[1].lower().replace(".", "")
+        mime = "jpeg" if ext in ["jpg", "jpeg"] else "png"
+        with open(path, "rb") as f:
+            b64 = base64.b64encode(f.read()).decode()
+        return b64, mime
+    return None, None
 
 def get_db():
     conn = sqlite3.connect(DB_PATH)
@@ -360,8 +375,25 @@ init_db()
 if "user" not in st.session_state:
     st.session_state.user = None
 
+# ========================================================
+# ✅ AJUSTE 4: LOGO NAS PÁGINAS DE LOGIN E HOME
+# ========================================================
+def render_marina_logo(max_width="220px", margin_bottom="12px"):
+    """Renderiza a logo da Marina Malheiros se o arquivo existir."""
+    b64, mime = get_logo_b64(MARINA_LOGO_PATH)
+    if b64:
+        st.markdown(
+            f'<div style="text-align:center; margin-bottom:{margin_bottom};">'
+            f'<img src="data:image/{mime};base64,{b64}" style="max-width:{max_width}; height:auto;">'
+            f'</div>',
+            unsafe_allow_html=True
+        )
+
 def login_page():
-    st.markdown("<div style='text-align:center; font-size:2.2rem; letter-spacing:6px; margin-top:30px;'>🍎 🥕 🥦 🍓 🍌 🍇 🥥 🥑</div>", unsafe_allow_html=True)
+    # ✅ Logo na página de login (tela de bloqueio)
+    render_marina_logo(max_width="200px", margin_bottom="10px")
+
+    st.markdown("<div style='text-align:center; font-size:2.2rem; letter-spacing:6px; margin-top:10px;'>🍎 🥕 🥦 🍓 🍌 🍇 🥥 🥑</div>", unsafe_allow_html=True)
     st.markdown("<h1 style='color:#4A148C; text-align:center; font-size:2.4rem; font-weight:900;'>🍎 NutriMais</h1>", unsafe_allow_html=True)
     st.markdown("<p style='color:#7B1FA2; text-align:center; font-size:1.05rem; margin-bottom:28px;'>Acompanhamento Nutricional de Criancas e Adolescentes</p>", unsafe_allow_html=True)
 
@@ -511,14 +543,17 @@ def render_imla_header():
         unsafe_allow_html=True
     )
 
-def render_imla_turma_buttons(turmas):
+# ✅ AJUSTE 3: Botões do IMLA direcionam para o relatório COLETIVO da turma
+def render_imla_turma_buttons(turmas, grupo_id):
     buttons_html = []
     for turma in turmas:
         nome = turma["nome"]
         cor = IMLA_TURMA_COLORS.get(nome, "#6741d9")
         texto_cor = "#333" if cor == "#ffc713" else "white"
+        # Link com parâmetros: imla_turma + pagina=coletivo para abrir direto no relatório coletivo
+        link = f"?imla_turma={quote(nome)}&pagina=coletivo"
         buttons_html.append(
-            f'<a class="imla-turma-button" style="background:{cor};color:{texto_cor} !important;" href="?imla_turma={quote(nome)}" target="_self">{nome}</a>'
+            f'<a class="imla-turma-button" style="background:{cor};color:{texto_cor} !important;" href__="{link}" target="_self">{nome}</a>'
         )
     if buttons_html:
         st.markdown(f'<div class="imla-turma-buttons">{"".join(buttons_html)}</div>', unsafe_allow_html=True)
@@ -625,6 +660,9 @@ def main_app():
     conn = get_db()
 
     with st.sidebar:
+        # ✅ AJUSTE 4: Logo da Marina na sidebar
+        render_marina_logo(max_width="160px", margin_bottom="8px")
+
         st.markdown(f"### 🍎 NutriMais")
         role_labels = {"admin": "👑 Admin", "group_admin": "🔧 Admin Grupo", "visitor": "👁 Visitante"}
         st.markdown(f"**{role_labels.get(user['role'], user['role'])}** | {user['username']}")
@@ -635,7 +673,19 @@ def main_app():
 
         st.divider()
 
-        pagina = st.radio("Navegacao", ["📋 Sistema", "📊 Controle Coletivo"],
+        # ✅ AJUSTE 3: Ler parâmetro "pagina" da URL para redirecionar ao coletivo
+        try:
+            pagina_query = st.query_params.get("pagina")
+        except Exception:
+            pagina_query = None
+        if isinstance(pagina_query, list):
+            pagina_query = pagina_query[0] if pagina_query else None
+
+        opcoes_pagina = ["📋 Sistema", "📊 Controle Coletivo"]
+        default_pagina_idx = 1 if pagina_query == "coletivo" else 0
+
+        pagina = st.radio("Navegacao", opcoes_pagina,
+                          index=default_pagina_idx,
                           label_visibility="collapsed")
 
         st.divider()
@@ -664,6 +714,7 @@ def main_app():
 
         turma_sel = None
         criancas = []
+        turmas = []
         if grupo_sel:
             turmas = conn.execute("SELECT id, nome, grupo_id FROM turmas WHERE grupo_id = ?", (grupo_sel["id"],)).fetchall()
 
@@ -676,6 +727,28 @@ def main_app():
                         conn.commit()
                         st.success(f'Turma "{nova_turma.strip()}" criada!')
                         st.rerun()
+
+                # ✅ AJUSTE 1: Remover Turma
+                st.markdown("##### 🗑 Remover Turma")
+                turma_names_remover = ["-- Selecione --"] + [t["nome"] for t in turmas]
+                turma_remover_nome = st.selectbox("Turma para remover", turma_names_remover,
+                                                   label_visibility="collapsed", key="sel_turma_remover")
+                if turma_remover_nome != "-- Selecione --":
+                    turma_remover = next((dict(t) for t in turmas if t["nome"] == turma_remover_nome), None)
+                    if turma_remover:
+                        if st.button("🗑 Remover Turma", use_container_width=True, key="btn_remover_turma",
+                                     type="primary"):
+                            # Remove crianças e medições vinculadas antes de remover a turma
+                            criancas_turma = conn.execute(
+                                "SELECT id FROM criancas WHERE turma_id = ?", (turma_remover["id"],)
+                            ).fetchall()
+                            for cri in criancas_turma:
+                                conn.execute("DELETE FROM medicoes WHERE crianca_id = ?", (cri["id"],))
+                            conn.execute("DELETE FROM criancas WHERE turma_id = ?", (turma_remover["id"],))
+                            conn.execute("DELETE FROM turmas WHERE id = ?", (turma_remover["id"],))
+                            conn.commit()
+                            st.success(f'Turma "{turma_remover_nome}" e todas as crianças removidas!')
+                            st.rerun()
 
             st.markdown("##### 📋 Turma")
             turma_names = ["-- Selecione --"] + [t["nome"] for t in turmas]
@@ -746,8 +819,9 @@ def main_app():
         admin_panel()
         return
 
+    # ✅ AJUSTE 3: Botões IMLA passam o grupo_id para a função
     if is_imla_group(grupo_sel) and grupo_sel:
-        render_imla_turma_buttons(turmas)
+        render_imla_turma_buttons(turmas, grupo_sel["id"])
 
     if not grupo_sel:
         st.markdown("""
@@ -1061,6 +1135,9 @@ def main_app():
 
 def home_page():
     user = st.session_state.user
+
+    # ✅ AJUSTE 4: Logo da Marina na página inicial
+    render_marina_logo(max_width="220px", margin_bottom="8px")
 
     st.markdown("<div style='text-align:center; font-size:2.2rem; letter-spacing:6px;'>🍎 🥕 🥦 🍓 🍌 🍇 🥥 🥑</div>", unsafe_allow_html=True)
     st.markdown("<h1 style='color:#4A148C; text-align:center; font-size:2.4rem; font-weight:900;'>🍎 NutriMais</h1>", unsafe_allow_html=True)
