@@ -63,6 +63,7 @@ DB_PATH = "nutrimais.db"
 IMLA_GROUP_NAME = "Instituto Mãe Lalu"
 IMLA_LOGO_PATHS = ["imla_logo.png", "logo_imla.png", "instituto_mae_lalu.png", "logo_instituto_mae_lalu.png"]
 
+# ✅ AJUSTE 2: Cor do botão "Cirandando pelo Mundo" confirmada como #6741d9
 IMLA_TURMA_COLORS = {
     "Turma Rosa": "#ff81ba",
     "Turma Amarela": "#ffc713",
@@ -71,40 +72,18 @@ IMLA_TURMA_COLORS = {
     "Turma Cirandando pelo Mundo": "#6741d9",
 }
 
-# ✅ URL direta da logo hospedada (substitua pela URL raw do GitHub após fazer upload)
-# Exemplo: https://raw.githubusercontent.com/SEU_USUARIO/SEU_REPO/main/logo_marina.jpg
-MARINA_LOGO_URL = "https://raw.githubusercontent.com/SEU_USUARIO/SEU_REPO/main/logo_marina.jpg"
-MARINA_LOGO_PATH = "logo_marina.jpg"  # arquivo local (funciona no Streamlit Cloud se estiver no repo)
+# ✅ LOGO: URL da logo da Marina Malheiros (hospedada no GitHub junto com o app)
+MARINA_LOGO_PATH = "logo_marina.jpg"  # Coloque a imagem com este nome na raiz do repositório
 
-def get_logo_html(max_width="220px", margin_bottom="12px"):
-    """Tenta carregar a logo: primeiro do arquivo local, depois da URL."""
-    # Tenta arquivo local primeiro
-    for ext_try in ["logo_marina.jpg", "logo_marina.png", "LOGONUTRIMARINAMALHEIROS.jpg",
-                    "2cdbc7ef0_LOGONUTRIMARINAMALHEIROS.jpg"]:
-        if os.path.exists(ext_try):
-            file_ext = os.path.splitext(ext_try)[1].lower().replace(".", "")
-            mime = "jpeg" if file_ext in ["jpg", "jpeg"] else "png"
-            with open(ext_try, "rb") as f:
-                b64 = base64.b64encode(f.read()).decode()
-            return (
-                f'<div style="text-align:center; margin-bottom:{margin_bottom};">'
-                f'<img src="data:image/{mime};base64,{b64}" style="max-width:{max_width}; height:auto;">'
-                f'</div>'
-            )
-    # Fallback: URL externa (substitua pela URL real do seu GitHub)
-    if MARINA_LOGO_URL and "SEU_USUARIO" not in MARINA_LOGO_URL:
-        return (
-            f'<div style="text-align:center; margin-bottom:{margin_bottom};">'
-            f'<img src="{MARINA_LOGO_URL}" style="max-width:{max_width}; height:auto;" '
-            f'onerror="this.style.display=\'none\'">'
-            f'</div>'
-        )
-    return ""
-
-def render_marina_logo(max_width="220px", margin_bottom="12px"):
-    html = get_logo_html(max_width, margin_bottom)
-    if html:
-        st.markdown(html, unsafe_allow_html=True)
+def get_logo_b64(path):
+    """Retorna a logo em base64 se o arquivo existir."""
+    if os.path.exists(path):
+        ext = os.path.splitext(path)[1].lower().replace(".", "")
+        mime = "jpeg" if ext in ["jpg", "jpeg"] else "png"
+        with open(path, "rb") as f:
+            b64 = base64.b64encode(f.read()).decode()
+        return b64, mime
+    return None, None
 
 def get_db():
     conn = sqlite3.connect(DB_PATH)
@@ -396,45 +375,22 @@ init_db()
 if "user" not in st.session_state:
     st.session_state.user = None
 
-# ============================================================
-# LOGO - renderiza em qualquer lugar do app
-# ============================================================
+# ========================================================
+# ✅ AJUSTE 4: LOGO NAS PÁGINAS DE LOGIN E HOME
+# ========================================================
 def render_marina_logo(max_width="220px", margin_bottom="12px"):
-    """
-    Procura a logo em múltiplos nomes de arquivo no diretório atual.
-    Coloque a imagem na raiz do seu repositório com um desses nomes:
-      logo_marina.jpg  OU  logo_marina.png  OU  LOGONUTRIMARINAMALHEIROS.jpg
-    """
-    nomes_possiveis = [
-        "logo_marina.jpg",
-        "logo_marina.png",
-        "LOGONUTRIMARINAMALHEIROS.jpg",
-        "LOGONUTRIMARINAMALHEIROS.png",
-        "2cdbc7ef0_LOGONUTRIMARINAMALHEIROS.jpg",
-        "logo_marina_malheiros.jpg",
-        "logo_marina_malheiros.png",
-    ]
-    for nome in nomes_possiveis:
-        if os.path.exists(nome):
-            ext = os.path.splitext(nome)[1].lower().replace(".", "")
-            mime = "jpeg" if ext in ["jpg", "jpeg"] else "png"
-            with open(nome, "rb") as f:
-                b64 = base64.b64encode(f.read()).decode()
-            st.markdown(
-                f'<div style="text-align:center; margin-bottom:{margin_bottom};">'
-                f'<img src="data:image/{mime};base64,{b64}" '
-                f'style="max-width:{max_width}; height:auto; display:inline-block;">'
-                f'</div>',
-                unsafe_allow_html=True
-            )
-            return
-    # Se não achar arquivo local, não exibe nada (sem erro)
+    """Renderiza a logo da Marina Malheiros se o arquivo existir."""
+    b64, mime = get_logo_b64(MARINA_LOGO_PATH)
+    if b64:
+        st.markdown(
+            f'<div style="text-align:center; margin-bottom:{margin_bottom};">'
+            f'<img src="data:image/{mime};base64,{b64}" style="max-width:{max_width}; height:auto;">'
+            f'</div>',
+            unsafe_allow_html=True
+        )
 
-# ============================================================
-# LOGIN PAGE
-# ============================================================
 def login_page():
-    # Logo no topo da página de login (tela de bloqueio)
+    # ✅ Logo na página de login (tela de bloqueio)
     render_marina_logo(max_width="200px", margin_bottom="10px")
 
     st.markdown("<div style='text-align:center; font-size:2.2rem; letter-spacing:6px; margin-top:10px;'>🍎 🥕 🥦 🍓 🍌 🍇 🥥 🥑</div>", unsafe_allow_html=True)
@@ -475,9 +431,6 @@ def login_page():
 
     st.markdown("<div style='text-align:center; font-size:2.2rem; letter-spacing:6px; margin-top:20px;'>🌽 🍅 🍆 🥒 🥬 🧅 🍐 🍊</div>", unsafe_allow_html=True)
 
-# ============================================================
-# ADMIN PANEL
-# ============================================================
 def admin_panel():
     st.markdown("## ⚙️ Gerenciamento de Usuarios")
 
@@ -590,34 +543,21 @@ def render_imla_header():
         unsafe_allow_html=True
     )
 
-# ============================================================
-# ✅ BOTÕES IMLA — usam st.button para controlar session_state
-#    diretamente, sem depender de query_params
-# ============================================================
-def render_imla_turma_buttons(turmas):
-    cols = st.columns(len(turmas)) if len(turmas) <= 5 else st.columns(3)
-    for i, turma in enumerate(turmas):
+# ✅ AJUSTE 3: Botões do IMLA direcionam para o relatório COLETIVO da turma
+def render_imla_turma_buttons(turmas, grupo_id):
+    buttons_html = []
+    for turma in turmas:
         nome = turma["nome"]
         cor = IMLA_TURMA_COLORS.get(nome, "#6741d9")
         texto_cor = "#333" if cor == "#ffc713" else "white"
-        with cols[i % len(cols)]:
-            # Botão estilizado via markdown + st.button sobreposto
-            st.markdown(
-                f'<div style="background:{cor};color:{texto_cor};padding:10px 16px;'
-                f'border-radius:999px;font-weight:800;font-size:0.9rem;'
-                f'box-shadow:0 2px 8px rgba(0,0,0,0.12);text-align:center;'
-                f'margin-bottom:4px;">{nome}</div>',
-                unsafe_allow_html=True
-            )
-            if st.button(f"Abrir {nome}", key=f"imla_btn_{i}", use_container_width=True):
-                # Define a turma e força o modo "Controle Coletivo"
-                st.session_state["sel_turma"] = nome
-                st.session_state["imla_pagina_coletivo"] = True
-                st.rerun()
+        # Link com parâmetros: imla_turma + pagina=coletivo para abrir direto no relatório coletivo
+        link = f"?imla_turma={quote(nome)}&pagina=coletivo"
+        buttons_html.append(
+            f'<a class="imla-turma-button" style="background:{cor};color:{texto_cor} !important;" href__="{link}" target="_self">{nome}</a>'
+        )
+    if buttons_html:
+        st.markdown(f'<div class="imla-turma-buttons">{"".join(buttons_html)}</div>', unsafe_allow_html=True)
 
-# ============================================================
-# GRÁFICOS
-# ============================================================
 def render_growth_chart(sexo, tipo, medicoes_data, titulo, eixo_x_campo, eixo_y_campo, label_x, label_y):
     try:
         import plotly.graph_objects as go
@@ -715,16 +655,13 @@ def render_growth_chart(sexo, tipo, medicoes_data, titulo, eixo_x_campo, eixo_y_
 
     return fig
 
-# ============================================================
-# MAIN APP
-# ============================================================
 def main_app():
     user = st.session_state.user
     conn = get_db()
 
     with st.sidebar:
-        # ✅ Logo da Marina na sidebar
-        render_marina_logo(max_width="150px", margin_bottom="6px")
+        # ✅ AJUSTE 4: Logo da Marina na sidebar
+        render_marina_logo(max_width="160px", margin_bottom="8px")
 
         st.markdown(f"### 🍎 NutriMais")
         role_labels = {"admin": "👑 Admin", "group_admin": "🔧 Admin Grupo", "visitor": "👁 Visitante"}
@@ -736,22 +673,20 @@ def main_app():
 
         st.divider()
 
-        # ✅ Controle da aba: se viemos dos botões IMLA, força "Controle Coletivo"
-        if st.session_state.get("imla_pagina_coletivo"):
-            pagina_default_idx = 1
-        else:
-            pagina_default_idx = 0
+        # ✅ AJUSTE 3: Ler parâmetro "pagina" da URL para redirecionar ao coletivo
+        try:
+            pagina_query = st.query_params.get("pagina")
+        except Exception:
+            pagina_query = None
+        if isinstance(pagina_query, list):
+            pagina_query = pagina_query[0] if pagina_query else None
 
-        pagina = st.radio(
-            "Navegacao",
-            ["📋 Sistema", "📊 Controle Coletivo"],
-            index=pagina_default_idx,
-            label_visibility="collapsed"
-        )
+        opcoes_pagina = ["📋 Sistema", "📊 Controle Coletivo"]
+        default_pagina_idx = 1 if pagina_query == "coletivo" else 0
 
-        # Limpa a flag após usar
-        if pagina == "📋 Sistema":
-            st.session_state["imla_pagina_coletivo"] = False
+        pagina = st.radio("Navegacao", opcoes_pagina,
+                          index=default_pagina_idx,
+                          label_visibility="collapsed")
 
         st.divider()
 
@@ -793,7 +728,7 @@ def main_app():
                         st.success(f'Turma "{nova_turma.strip()}" criada!')
                         st.rerun()
 
-                # ✅ REMOVER TURMA
+                # ✅ AJUSTE 1: Remover Turma
                 st.markdown("##### 🗑 Remover Turma")
                 turma_names_remover = ["-- Selecione --"] + [t["nome"] for t in turmas]
                 turma_remover_nome = st.selectbox("Turma para remover", turma_names_remover,
@@ -801,8 +736,9 @@ def main_app():
                 if turma_remover_nome != "-- Selecione --":
                     turma_remover = next((dict(t) for t in turmas if t["nome"] == turma_remover_nome), None)
                     if turma_remover:
-                        if st.button("🗑 Confirmar Remoção da Turma", use_container_width=True,
-                                     key="btn_remover_turma", type="primary"):
+                        if st.button("🗑 Remover Turma", use_container_width=True, key="btn_remover_turma",
+                                     type="primary"):
+                            # Remove crianças e medições vinculadas antes de remover a turma
                             criancas_turma = conn.execute(
                                 "SELECT id FROM criancas WHERE turma_id = ?", (turma_remover["id"],)
                             ).fetchall()
@@ -811,25 +747,20 @@ def main_app():
                             conn.execute("DELETE FROM criancas WHERE turma_id = ?", (turma_remover["id"],))
                             conn.execute("DELETE FROM turmas WHERE id = ?", (turma_remover["id"],))
                             conn.commit()
-                            st.success(f'Turma "{turma_remover_nome}" removida!')
+                            st.success(f'Turma "{turma_remover_nome}" e todas as crianças removidas!')
                             st.rerun()
 
             st.markdown("##### 📋 Turma")
             turma_names = ["-- Selecione --"] + [t["nome"] for t in turmas]
-
-            # ✅ Se viemos dos botões IMLA, pré-seleciona a turma
-            turma_imla_sessao = st.session_state.get("sel_turma")
-            if is_imla_group(grupo_sel) and turma_imla_sessao and turma_imla_sessao in turma_names:
-                turma_default_idx = turma_names.index(turma_imla_sessao)
-            else:
-                turma_default_idx = 0
-
-            turma_sel_name = st.selectbox(
-                "Turma", turma_names,
-                index=turma_default_idx,
-                label_visibility="collapsed",
-                key="sel_turma"
-            )
+            try:
+                turma_imla_query = st.query_params.get("imla_turma")
+            except Exception:
+                turma_imla_query = None
+            if isinstance(turma_imla_query, list):
+                turma_imla_query = turma_imla_query[0] if turma_imla_query else None
+            if is_imla_group(grupo_sel) and turma_imla_query in turma_names:
+                st.session_state.sel_turma = turma_imla_query
+            turma_sel_name = st.selectbox("Turma", turma_names, label_visibility="collapsed", key="sel_turma")
             if turma_sel_name != "-- Selecione --":
                 turma_sel = next((dict(t) for t in turmas if t["nome"] == turma_sel_name), None)
 
@@ -888,9 +819,9 @@ def main_app():
         admin_panel()
         return
 
-    # ✅ Botões IMLA renderizados como st.button (funcionam via session_state)
+    # ✅ AJUSTE 3: Botões IMLA passam o grupo_id para a função
     if is_imla_group(grupo_sel) and grupo_sel:
-        render_imla_turma_buttons(turmas)
+        render_imla_turma_buttons(turmas, grupo_sel["id"])
 
     if not grupo_sel:
         st.markdown("""
@@ -1202,13 +1133,10 @@ def main_app():
 
     conn.close()
 
-# ============================================================
-# HOME PAGE
-# ============================================================
 def home_page():
     user = st.session_state.user
 
-    # ✅ Logo da Marina na página inicial
+    # ✅ AJUSTE 4: Logo da Marina na página inicial
     render_marina_logo(max_width="220px", margin_bottom="8px")
 
     st.markdown("<div style='text-align:center; font-size:2.2rem; letter-spacing:6px;'>🍎 🥕 🥦 🍓 🍌 🍇 🥥 🥑</div>", unsafe_allow_html=True)
@@ -1242,9 +1170,6 @@ def home_page():
 
     st.markdown("<div style='text-align:center; font-size:2.2rem; letter-spacing:6px; margin-top:18px;'>🌽 🍅 🍆 🥒 🥬 🧅 🍐 🍊</div>", unsafe_allow_html=True)
 
-# ============================================================
-# ENTRY POINT
-# ============================================================
 if "screen" not in st.session_state:
     st.session_state.screen = "home"
 
