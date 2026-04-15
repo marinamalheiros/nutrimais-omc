@@ -371,7 +371,6 @@ def login_page():
         st.info("""
         **Acesso padrao:**
         - Visitante: `visitante` / `visitante123`
-        - Administrador: `admin` / `admin123`
         """)
 
     st.markdown("<div style='text-align:center; font-size:2.2rem; letter-spacing:6px; margin-top:20px;'>🌽 🍅 🍆 🥒 🥬 🧅 🍐 🍊</div>", unsafe_allow_html=True)
@@ -535,6 +534,20 @@ def render_growth_chart(sexo, tipo, medicoes_data, titulo, eixo_x_campo, eixo_y_
 
     st.plotly_chart(fig, use_container_width=True)
 
+    try:
+        pdf_bytes = fig.to_image(format="pdf")
+        nome_arquivo = titulo.lower().replace(" ", "_").replace("x", "por")
+        st.download_button(
+            label=f"📄 Baixar {titulo} em PDF",
+            data=pdf_bytes,
+            file_name=f"curva_{nome_arquivo}.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+            key=f"download_pdf_{sexo}_{tipo}"
+        )
+    except Exception:
+        st.info("Para habilitar o download dos graficos em PDF, instale tambem o pacote kaleido: pip install kaleido")
+
     tipo_eixo = "altura" if eixo_x_campo == "altura" else "meses"
     for i, p in enumerate(pontos):
         limites = obter_limites(ref, p["vx"], tipo_eixo)
@@ -645,7 +658,14 @@ def main_app():
     header_parts = ["🍎 NutriMais"]
     if grupo_sel and turma_sel:
         header_parts.append(f" | {grupo_sel['nome']} — {turma_sel['nome']}")
-    st.markdown(f"<div class='nutri-header'><h2 style='color:#4A148C; margin:0;'>{''.join(header_parts)}</h2></div>", unsafe_allow_html=True)
+    header_col, home_col = st.columns([5, 1])
+    with header_col:
+        st.markdown(f"<div class='nutri-header'><h2 style='color:#4A148C; margin:0;'>{''.join(header_parts)}</h2></div>", unsafe_allow_html=True)
+    with home_col:
+        st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
+        if st.button("🏠 Tela inicial", use_container_width=True, key="btn_voltar_home_topo"):
+            st.session_state.screen = "home"
+            st.rerun()
 
     if not grupo_sel:
         st.markdown("""
