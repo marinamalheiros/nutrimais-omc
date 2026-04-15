@@ -755,6 +755,9 @@ def main_app():
                     status, cor = "Sem medicao", "#808080"
                     imc = 0
 
+                peso_txt = f"{ultima['peso']:.1f}" if ultima else "-"
+                altura_txt = f"{ultima['altura']:.1f}" if ultima else "-"
+                imc_txt = f"{imc:.1f}" if ultima else "-"
                 cor_txt = "#333" if cor == "#FFD700" else "white"
                 table_html += f"""
                 <tr style="background:{bg};border-bottom:1px solid #E1BEE7;">
@@ -763,9 +766,9 @@ def main_app():
                     <td style="padding:9px 8px;text-align:center;">{format_date_br(c['data_nascimento'])}</td>
                     <td style="padding:9px 8px;text-align:center;">{idade_meses} meses</td>
                     <td style="padding:9px 8px;text-align:center;">{format_date_br(ultima['data_medicao']) if ultima else '-'}</td>
-                    <td style="padding:9px 8px;text-align:center;">{ultima['peso']:.1f if ultima else '-'}</td>
-                    <td style="padding:9px 8px;text-align:center;">{ultima['altura']:.1f if ultima else '-'}</td>
-                    <td style="padding:9px 8px;text-align:center;">{imc:.1f if ultima else '-'}</td>
+                    <td style="padding:9px 8px;text-align:center;">{peso_txt}</td>
+                    <td style="padding:9px 8px;text-align:center;">{altura_txt}</td>
+                    <td style="padding:9px 8px;text-align:center;">{imc_txt}</td>
                     <td style="padding:9px 14px;text-align:center;">
                         <span style="background:{cor};color:{cor_txt};padding:5px 10px;border-radius:7px;font-weight:bold;font-size:0.8rem;display:inline-block;min-width:160px;">
                             {status}
