@@ -1,5 +1,4 @@
 import streamlit as st
-import streamlit.components.v1 as components
 import sqlite3
 import hashlib
 import math
@@ -372,6 +371,7 @@ def login_page():
         st.info("""
         **Acesso padrao:**
         - Visitante: `visitante` / `visitante123`
+        - Administrador: `admin` / `admin123`
         """)
 
     st.markdown("<div style='text-align:center; font-size:2.2rem; letter-spacing:6px; margin-top:20px;'>🌽 🍅 🍆 🥒 🥬 🧅 🍐 🍊</div>", unsafe_allow_html=True)
@@ -548,8 +548,6 @@ def render_growth_chart(sexo, tipo, medicoes_data, titulo, eixo_x_campo, eixo_y_
             unsafe_allow_html=True
         )
 
-    return fig
-
 def main_app():
     user = st.session_state.user
     conn = get_db()
@@ -647,14 +645,7 @@ def main_app():
     header_parts = ["🍎 NutriMais"]
     if grupo_sel and turma_sel:
         header_parts.append(f" | {grupo_sel['nome']} — {turma_sel['nome']}")
-    header_col, home_col = st.columns([5, 1])
-    with header_col:
-        st.markdown(f"<div class='nutri-header'><h2 style='color:#4A148C; margin:0;'>{''.join(header_parts)}</h2></div>", unsafe_allow_html=True)
-    with home_col:
-        st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
-        if st.button("🏠 Tela inicial", use_container_width=True, key="btn_voltar_home_topo"):
-            st.session_state.screen = "home"
-            st.rerun()
+    st.markdown(f"<div class='nutri-header'><h2 style='color:#4A148C; margin:0;'>{''.join(header_parts)}</h2></div>", unsafe_allow_html=True)
 
     if not grupo_sel:
         st.markdown("""
@@ -744,9 +735,6 @@ def main_app():
                     status, cor = "Sem medicao", "#808080"
                     imc = 0
 
-                peso_txt = f"{ultima['peso']:.1f}" if ultima else "-"
-                altura_txt = f"{ultima['altura']:.1f}" if ultima else "-"
-                imc_txt = f"{imc:.1f}" if ultima else "-"
                 cor_txt = "#333" if cor == "#FFD700" else "white"
                 table_html += f"""
                 <tr style="background:{bg};border-bottom:1px solid #E1BEE7;">
@@ -755,9 +743,9 @@ def main_app():
                     <td style="padding:9px 8px;text-align:center;">{format_date_br(c['data_nascimento'])}</td>
                     <td style="padding:9px 8px;text-align:center;">{idade_meses} meses</td>
                     <td style="padding:9px 8px;text-align:center;">{format_date_br(ultima['data_medicao']) if ultima else '-'}</td>
-                    <td style="padding:9px 8px;text-align:center;">{peso_txt}</td>
-                    <td style="padding:9px 8px;text-align:center;">{altura_txt}</td>
-                    <td style="padding:9px 8px;text-align:center;">{imc_txt}</td>
+                    <td style="padding:9px 8px;text-align:center;">{ultima['peso']:.1f if ultima else '-'}</td>
+                    <td style="padding:9px 8px;text-align:center;">{ultima['altura']:.1f if ultima else '-'}</td>
+                    <td style="padding:9px 8px;text-align:center;">{imc:.1f if ultima else '-'}</td>
                     <td style="padding:9px 14px;text-align:center;">
                         <span style="background:{cor};color:{cor_txt};padding:5px 10px;border-radius:7px;font-weight:bold;font-size:0.8rem;display:inline-block;min-width:160px;">
                             {status}
@@ -766,8 +754,7 @@ def main_app():
                 </tr>
                 """
             table_html += "</tbody></table></div>"
-            table_height = min(700, 120 + len(criancas) * 48)
-            components.html(table_html, height=table_height, scrolling=True)
+            st.markdown(table_html, unsafe_allow_html=True)
 
         st.markdown("""
         <div class="disclaimer">
@@ -922,37 +909,16 @@ def main_app():
                     ]
 
                     chart_cols = st.columns(2)
-                    pdf_graficos = []
                     for idx, g in enumerate(graficos):
                         ref_check = get_ref(crianca_sel["sexo"], g["tipo"])
                         valid_for_chart = [m for m in valid_meds if (m["altura"] if g["eixo_x"] == "altura" else m["meses"]) > 0]
                         if ref_check and valid_for_chart:
                             with chart_cols[idx % 2]:
-                                fig_pdf = render_growth_chart(
+                                render_growth_chart(
                                     crianca_sel["sexo"], g["tipo"], valid_meds,
                                     g["titulo"], g["eixo_x"], g["eixo_y"],
                                     g["label_x"], g["label_y"]
                                 )
-                                if fig_pdf:
-                                    pdf_graficos.append((g["titulo"], g["tipo"], fig_pdf))
-
-                    if pdf_graficos:
-                        with st.expander("📄 Baixar graficos em PDF"):
-                            for titulo_pdf, tipo_pdf, fig_pdf in pdf_graficos:
-                                try:
-                                    pdf_bytes = fig_pdf.to_image(format="pdf")
-                                    nome_arquivo = titulo_pdf.lower().replace(" ", "_").replace("x", "por")
-                                    st.download_button(
-                                        label=f"Baixar {titulo_pdf} em PDF",
-                                        data=pdf_bytes,
-                                        file_name=f"curva_{nome_arquivo}.pdf",
-                                        mime="application/pdf",
-                                        use_container_width=True,
-                                        key=f"download_pdf_{crianca_sel['id']}_{tipo_pdf}"
-                                    )
-                                except Exception:
-                                    st.info("Para habilitar o download dos graficos em PDF, instale tambem o pacote kaleido: pip install kaleido")
-                                    break
 
                     st.markdown("""
                     <div class="disclaimer">
