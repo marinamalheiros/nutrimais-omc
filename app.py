@@ -5,6 +5,7 @@ import hashlib
 import math
 import os
 import json
+import base64
 from datetime import datetime, date
 
 st.set_page_config(
@@ -42,10 +43,23 @@ st.markdown("""
         font-weight: bold; font-size: 0.9rem; margin-bottom: 12px; }
     .msg-err { background: #FFEBEE; color: #C62828; padding: 10px 16px; border-radius: 8px;
         font-weight: bold; font-size: 0.9rem; margin-bottom: 12px; }
+    .imla-header { background: linear-gradient(135deg, #ffffff 0%, #fff7d6 45%, #f7eaff 100%);
+        padding: 20px 24px; border-radius: 18px; border: 3px solid #a8cf45;
+        margin-bottom: 20px; box-shadow: 0 4px 18px rgba(103,65,217,0.16); text-align: center; }
+    .imla-logo-placeholder { width: 96px; height: 96px; border-radius: 50%; margin: 0 auto 8px auto;
+        background: radial-gradient(circle at 30% 25%, #ffc713, #ff81ba 38%, #5cc6d0 68%, #6741d9);
+        display: flex; align-items: center; justify-content: center; color: white; font-size: 2rem; font-weight: 900; }
+    .imla-title { font-size: 2rem; font-weight: 900; letter-spacing: 1px; line-height: 1.2; margin: 4px 0 0 0; }
+    .imla-title-green { color: #a8cf45; }
+    .imla-title-blue { color: #5cc6d0; }
+    .imla-strip { height: 8px; border-radius: 999px; margin-top: 14px;
+        background: linear-gradient(90deg, #ff81ba, #a8cf45, #5cc6d0, #ffc713, #6741d9); }
 </style>
 """, unsafe_allow_html=True)
 
 DB_PATH = "nutrimais.db"
+IMLA_GROUP_NAME = "Instituto Mãe Lalu"
+IMLA_LOGO_PATHS = ["imla_logo.png", "logo_imla.png", "instituto_mae_lalu.png", "logo_instituto_mae_lalu.png"]
 
 def get_db():
     conn = sqlite3.connect(DB_PATH)
@@ -453,6 +467,42 @@ def admin_panel():
     - **Administrador Geral:** Acesso total ao sistema.
     """)
 
+def is_imla_group(grupo):
+    return bool(grupo and grupo.get("nome") == IMLA_GROUP_NAME)
+
+def get_imla_logo_path():
+    for logo_path in IMLA_LOGO_PATHS:
+        if os.path.exists(logo_path):
+            return logo_path
+    return None
+
+def render_imla_header(turma_nome=None):
+    logo_path = get_imla_logo_path()
+    if logo_path:
+        ext = os.path.splitext(logo_path)[1].lower().replace(".", "")
+        mime_ext = "jpeg" if ext in ["jpg", "jpeg"] else "png"
+        with open(logo_path, "rb") as logo_file:
+            logo_b64 = base64.b64encode(logo_file.read()).decode()
+        logo_html = f'<img src="data:image/{mime_ext};base64,{logo_b64}" style="max-width:120px;max-height:120px;margin:0 auto 8px auto;display:block;">'
+    else:
+        logo_html = '<div class="imla-logo-placeholder">IML</div>'
+    turma_html = f"<div style='color:#6741d9;font-weight:700;margin-top:6px;'>Turma: {turma_nome}</div>" if turma_nome else ""
+    st.markdown(
+        f"""
+        <div class="imla-header">
+        {logo_html}
+        <div class="imla-title">
+            <span class="imla-title-green">INSTITUTO</span>
+            <span class="imla-title-blue"> MÃE </span>
+            <span class="imla-title-green">LALU</span>
+        </div>
+        {turma_html}
+        <div class="imla-strip"></div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
 def render_growth_chart(sexo, tipo, medicoes_data, titulo, eixo_x_campo, eixo_y_campo, label_x, label_y):
     try:
         import plotly.graph_objects as go
@@ -643,7 +693,10 @@ def main_app():
     else:
         header_col, home_col = st.columns([5, 1])
     with header_col:
-        st.markdown(f"<div class='nutri-header'><h2 style='color:#4A148C; margin:0;'>{''.join(header_parts)}</h2></div>", unsafe_allow_html=True)
+        if is_imla_group(grupo_sel):
+            render_imla_header(turma_sel["nome"] if turma_sel else None)
+        else:
+            st.markdown(f"<div class='nutri-header'><h2 style='color:#4A148C; margin:0;'>{''.join(header_parts)}</h2></div>", unsafe_allow_html=True)
     if user["role"] == "admin":
         with users_col:
             st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
