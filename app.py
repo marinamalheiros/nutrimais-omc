@@ -6,6 +6,7 @@ import math
 import os
 import json
 import base64
+from urllib.parse import quote
 from datetime import datetime, date
 
 st.set_page_config(
@@ -43,23 +44,31 @@ st.markdown("""
         font-weight: bold; font-size: 0.9rem; margin-bottom: 12px; }
     .msg-err { background: #FFEBEE; color: #C62828; padding: 10px 16px; border-radius: 8px;
         font-weight: bold; font-size: 0.9rem; margin-bottom: 12px; }
-    .imla-header { background: linear-gradient(135deg, #ffffff 0%, #fff7d6 45%, #f7eaff 100%);
-        padding: 20px 24px; border-radius: 18px; border: 3px solid #a8cf45;
-        margin-bottom: 20px; box-shadow: 0 4px 18px rgba(103,65,217,0.16); text-align: center; }
-    .imla-logo-placeholder { width: 96px; height: 96px; border-radius: 50%; margin: 0 auto 8px auto;
-        background: radial-gradient(circle at 30% 25%, #ffc713, #ff81ba 38%, #5cc6d0 68%, #6741d9);
-        display: flex; align-items: center; justify-content: center; color: white; font-size: 2rem; font-weight: 900; }
-    .imla-title { font-size: 2rem; font-weight: 900; letter-spacing: 1px; line-height: 1.2; margin: 4px 0 0 0; }
+    .imla-header { background: white; padding: 14px 24px 16px 24px; border-radius: 12px;
+        border-bottom: 3px solid #CE93D8; margin-bottom: 14px;
+        box-shadow: 0 2px 12px rgba(106,27,154,0.1); text-align: center; }
+    .imla-logo-space { height: 58px; margin: 0 auto 4px auto; display: flex; align-items: center; justify-content: center; }
+    .imla-title { font-size: 2rem; font-weight: 900; letter-spacing: 1px; line-height: 1.2; margin: 0; }
     .imla-title-green { color: #a8cf45; }
     .imla-title-blue { color: #5cc6d0; }
-    .imla-strip { height: 8px; border-radius: 999px; margin-top: 14px;
-        background: linear-gradient(90deg, #ff81ba, #a8cf45, #5cc6d0, #ffc713, #6741d9); }
+    .imla-turma-buttons { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin: 0 0 20px 0; }
+    .imla-turma-button { color: white !important; text-decoration: none !important; padding: 10px 16px;
+        border-radius: 999px; font-weight: 800; font-size: 0.9rem; box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+        display: inline-block; transition: transform 0.15s ease, box-shadow 0.15s ease; }
+    .imla-turma-button:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.18); }
 </style>
 """, unsafe_allow_html=True)
 
 DB_PATH = "nutrimais.db"
 IMLA_GROUP_NAME = "Instituto Mãe Lalu"
 IMLA_LOGO_PATHS = ["imla_logo.png", "logo_imla.png", "instituto_mae_lalu.png", "logo_instituto_mae_lalu.png"]
+IMLA_TURMA_COLORS = {
+    "Turma Rosa": "#ff81ba",
+    "Turma Amarela": "#ffc713",
+    "Turma Verde": "#a8cf45",
+    "Turma Azul": "#5cc6d0",
+    "Turma Cirandando pelo Mundo": "#6741d9",
+}
 
 def get_db():
     conn = sqlite3.connect(DB_PATH)
@@ -476,32 +485,43 @@ def get_imla_logo_path():
             return logo_path
     return None
 
-def render_imla_header(turma_nome=None):
+def render_imla_header():
     logo_path = get_imla_logo_path()
     if logo_path:
         ext = os.path.splitext(logo_path)[1].lower().replace(".", "")
         mime_ext = "jpeg" if ext in ["jpg", "jpeg"] else "png"
         with open(logo_path, "rb") as logo_file:
             logo_b64 = base64.b64encode(logo_file.read()).decode()
-        logo_html = f'<img src="data:image/{mime_ext};base64,{logo_b64}" style="max-width:120px;max-height:120px;margin:0 auto 8px auto;display:block;">'
+        logo_html = f'<img src="data:image/{mime_ext};base64,{logo_b64}" style="max-width:90px;max-height:58px;display:block;">'
     else:
-        logo_html = '<div class="imla-logo-placeholder">IML</div>'
-    turma_html = f"<div style='color:#6741d9;font-weight:700;margin-top:6px;'>Turma: {turma_nome}</div>" if turma_nome else ""
+        logo_html = ""
     st.markdown(
         f"""
         <div class="imla-header">
+        <div class="imla-logo-space">
         {logo_html}
+        </div>
         <div class="imla-title">
             <span class="imla-title-green">INSTITUTO</span>
             <span class="imla-title-blue"> MÃE </span>
             <span class="imla-title-green">LALU</span>
         </div>
-        {turma_html}
-        <div class="imla-strip"></div>
         </div>
         """,
         unsafe_allow_html=True
     )
+
+def render_imla_turma_buttons(turmas):
+    buttons_html = []
+    for turma in turmas:
+        nome = turma["nome"]
+        cor = IMLA_TURMA_COLORS.get(nome, "#6741d9")
+        texto_cor = "#333" if cor == "#ffc713" else "white"
+        buttons_html.append(
+            f'<a class="imla-turma-button" style="background:{cor};color:{texto_cor} !important;" href="?imla_turma={quote(nome)}" target="_self">{nome}</a>'
+        )
+    if buttons_html:
+        st.markdown(f'<div class="imla-turma-buttons">{"".join(buttons_html)}</div>', unsafe_allow_html=True)
 
 def render_growth_chart(sexo, tipo, medicoes_data, titulo, eixo_x_campo, eixo_y_campo, label_x, label_y):
     try:
@@ -659,6 +679,14 @@ def main_app():
 
             st.markdown("##### 📋 Turma")
             turma_names = ["-- Selecione --"] + [t["nome"] for t in turmas]
+            try:
+                turma_imla_query = st.query_params.get("imla_turma")
+            except Exception:
+                turma_imla_query = None
+            if isinstance(turma_imla_query, list):
+                turma_imla_query = turma_imla_query[0] if turma_imla_query else None
+            if is_imla_group(grupo_sel) and turma_imla_query in turma_names:
+                st.session_state.sel_turma = turma_imla_query
             turma_sel_name = st.selectbox("Turma", turma_names, label_visibility="collapsed", key="sel_turma")
             if turma_sel_name != "-- Selecione --":
                 turma_sel = next((dict(t) for t in turmas if t["nome"] == turma_sel_name), None)
@@ -694,7 +722,7 @@ def main_app():
         header_col, home_col = st.columns([5, 1])
     with header_col:
         if is_imla_group(grupo_sel):
-            render_imla_header(turma_sel["nome"] if turma_sel else None)
+            render_imla_header()
         else:
             st.markdown(f"<div class='nutri-header'><h2 style='color:#4A148C; margin:0;'>{''.join(header_parts)}</h2></div>", unsafe_allow_html=True)
     if user["role"] == "admin":
@@ -717,6 +745,9 @@ def main_app():
         conn.close()
         admin_panel()
         return
+
+    if is_imla_group(grupo_sel) and grupo_sel:
+        render_imla_turma_buttons(turmas)
 
     if not grupo_sel:
         st.markdown("""
