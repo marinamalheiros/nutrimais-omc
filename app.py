@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import sqlite3
 import hashlib
 import math
@@ -777,7 +778,8 @@ def main_app():
                 </tr>
                 """
             table_html += "</tbody></table></div>"
-            st.markdown(table_html, unsafe_allow_html=True)
+            table_height = min(700, 120 + len(criancas) * 48)
+            components.html(table_html, height=table_height, scrolling=True)
 
         st.markdown("""
         <div class="disclaimer">
