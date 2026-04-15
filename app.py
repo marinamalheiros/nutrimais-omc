@@ -535,20 +535,6 @@ def render_growth_chart(sexo, tipo, medicoes_data, titulo, eixo_x_campo, eixo_y_
 
     st.plotly_chart(fig, use_container_width=True)
 
-    try:
-        pdf_bytes = fig.to_image(format="pdf")
-        nome_arquivo = titulo.lower().replace(" ", "_").replace("x", "por")
-        st.download_button(
-            label=f"📄 Baixar {titulo} em PDF",
-            data=pdf_bytes,
-            file_name=f"curva_{nome_arquivo}.pdf",
-            mime="application/pdf",
-            use_container_width=True,
-            key=f"download_pdf_{sexo}_{tipo}"
-        )
-    except Exception:
-        st.info("Para habilitar o download dos graficos em PDF, instale tambem o pacote kaleido: pip install kaleido")
-
     tipo_eixo = "altura" if eixo_x_campo == "altura" else "meses"
     for i, p in enumerate(pontos):
         limites = obter_limites(ref, p["vx"], tipo_eixo)
@@ -561,6 +547,8 @@ def render_growth_chart(sexo, tipo, medicoes_data, titulo, eixo_x_campo, eixo_y_
             f'<span style="background:{cor};color:{cor_txt};padding:3px 10px;border-radius:6px;font-weight:bold;font-size:0.82rem;">{status}</span>',
             unsafe_allow_html=True
         )
+
+    return fig
 
 def main_app():
     user = st.session_state.user
@@ -934,16 +922,37 @@ def main_app():
                     ]
 
                     chart_cols = st.columns(2)
+                    pdf_graficos = []
                     for idx, g in enumerate(graficos):
                         ref_check = get_ref(crianca_sel["sexo"], g["tipo"])
                         valid_for_chart = [m for m in valid_meds if (m["altura"] if g["eixo_x"] == "altura" else m["meses"]) > 0]
                         if ref_check and valid_for_chart:
                             with chart_cols[idx % 2]:
-                                render_growth_chart(
+                                fig_pdf = render_growth_chart(
                                     crianca_sel["sexo"], g["tipo"], valid_meds,
                                     g["titulo"], g["eixo_x"], g["eixo_y"],
                                     g["label_x"], g["label_y"]
                                 )
+                                if fig_pdf:
+                                    pdf_graficos.append((g["titulo"], g["tipo"], fig_pdf))
+
+                    if pdf_graficos:
+                        with st.expander("📄 Baixar graficos em PDF"):
+                            for titulo_pdf, tipo_pdf, fig_pdf in pdf_graficos:
+                                try:
+                                    pdf_bytes = fig_pdf.to_image(format="pdf")
+                                    nome_arquivo = titulo_pdf.lower().replace(" ", "_").replace("x", "por")
+                                    st.download_button(
+                                        label=f"Baixar {titulo_pdf} em PDF",
+                                        data=pdf_bytes,
+                                        file_name=f"curva_{nome_arquivo}.pdf",
+                                        mime="application/pdf",
+                                        use_container_width=True,
+                                        key=f"download_pdf_{crianca_sel['id']}_{tipo_pdf}"
+                                    )
+                                except Exception:
+                                    st.info("Para habilitar o download dos graficos em PDF, instale tambem o pacote kaleido: pip install kaleido")
+                                    break
 
                     st.markdown("""
                     <div class="disclaimer">
