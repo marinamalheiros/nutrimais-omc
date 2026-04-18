@@ -4,7 +4,9 @@ import sqlite3
 import hashlib
 import math
 import os
+import json
 import base64
+from urllib.parse import quote
 from datetime import datetime, date
 
 st.set_page_config(
@@ -50,24 +52,13 @@ st.markdown("""
     .imla-title-green { color: #a8cf45; }
     .imla-title-blue { color: #5cc6d0; }
     .imla-turma-buttons { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin: 0 0 20px 0; }
+    /* AJUSTE 1: cor da letra sempre branca */
     .imla-turma-button { color: white !important; text-decoration: none !important; padding: 10px 16px;
         border-radius: 999px; font-weight: 800; font-size: 0.9rem; box-shadow: 0 2px 8px rgba(0,0,0,0.12);
-        display: inline-block; transition: transform 0.15s ease, box-shadow 0.15s ease; cursor: pointer; border: none; }
+        display: inline-block; transition: transform 0.15s ease, box-shadow 0.15s ease; }
     .imla-turma-button:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.18); }
-    /* ✅ AJUSTE 2: Logo sem fundo branco - blend mode sobre fundo roxo */
-    .marina-logo img {
-        mix-blend-mode: multiply;
-        filter: contrast(1.05);
-    }
-    /* Esconde o texto dos botões de turma do Streamlit, deixa só o visual HTML */
-    div[data-testid="stHorizontalBlock"] .stButton button {
-        opacity: 0;
-        height: 0;
-        padding: 0;
-        margin: 0;
-        border: none;
-        pointer-events: none;
-    }
+    /* Logo Marina */
+    .marina-logo img { mix-blend-mode: multiply; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -75,13 +66,13 @@ DB_PATH = "nutrimais.db"
 IMLA_GROUP_NAME = "Instituto Mãe Lalu"
 IMLA_LOGO_PATHS = ["imla_logo.png", "logo_imla.png", "instituto_mae_lalu.png", "logo_instituto_mae_lalu.png"]
 
-# ✅ AJUSTE 1: Adicionada Turma Laranja com cor #ffa500
+# AJUSTE: Turma Laranja adicionada + texto sempre branco (removido o condicional de cor escura)
 IMLA_TURMA_COLORS = {
     "Turma Rosa": "#ff81ba",
     "Turma Amarela": "#ffc713",
+    "Turma Laranja": "#ffa500",
     "Turma Verde": "#a8cf45",
     "Turma Azul": "#5cc6d0",
-    "Turma Laranja": "#ffa500",
     "Turma Cirandando pelo Mundo": "#6741d9",
 }
 
@@ -370,40 +361,39 @@ def can_write(user, grupo_nome=None):
         return True
     return False
 
+# AJUSTE: visitante de grupo também pode visualizar seu grupo
+def can_view_group(user, grupo_nome=None):
+    if not user:
+        return False
+    if user["role"] in ("admin", "visitor"):
+        return True
+    if user["role"] in ("group_admin", "group_visitor") and grupo_nome and user.get("group_access") == grupo_nome:
+        return True
+    return False
+
 init_db()
 
 if "user" not in st.session_state:
     st.session_state.user = None
 
-# ============================================================
-# LOGO - busca arquivo local no repositório
-# ============================================================
-def render_marina_logo(max_width="220px", margin_bottom="12px", blend=False):
-    nomes_possiveis = [
-        "logo_marina.jpg", "logo_marina.png",
-        "LOGONUTRIMARINAMALHEIROS.jpg", "LOGONUTRIMARINAMALHEIROS.png",
-        "logo_marina_malheiros.jpg", "logo_marina_malheiros.png",
-    ]
-    for nome in nomes_possiveis:
+# ── logo Marina ──────────────────────────────────────────────
+def render_marina_logo(max_width="220px", margin_bottom="12px"):
+    nomes = ["logo_marina.jpg","logo_marina.png",
+             "LOGONUTRIMARINAMALHEIROS.jpg","LOGONUTRIMARINAMALHEIROS.png",
+             "logo_marina_malheiros.jpg","logo_marina_malheiros.png"]
+    for nome in nomes:
         if os.path.exists(nome):
-            ext = os.path.splitext(nome)[1].lower().replace(".", "")
-            mime = "jpeg" if ext in ["jpg", "jpeg"] else "png"
-            with open(nome, "rb") as f:
+            ext = os.path.splitext(nome)[1].lower().replace(".","")
+            mime = "jpeg" if ext in ["jpg","jpeg"] else "png"
+            with open(nome,"rb") as f:
                 b64 = base64.b64encode(f.read()).decode()
-            # ✅ AJUSTE 2: mix-blend-mode:multiply remove fundo branco sobre fundos coloridos
-            blend_style = "mix-blend-mode:multiply;" if blend else ""
             st.markdown(
-                f'<div class="marina-logo" style="text-align:center; margin-bottom:{margin_bottom};">'
-                f'<img src="data:image/{mime};base64,{b64}" '
-                f'style="max-width:{max_width}; height:auto; display:inline-block; {blend_style}">'
-                f'</div>',
-                unsafe_allow_html=True
-            )
+                f'<div class="marina-logo" style="text-align:center;margin-bottom:{margin_bottom};">'
+                f'<img src="data:image/{mime};base64,{b64}" style="max-width:{max_width};height:auto;display:inline-block;">'
+                f'</div>', unsafe_allow_html=True)
             return
 
-# ============================================================
-# LOGIN PAGE
-# ============================================================
+# ── login ─────────────────────────────────────────────────────
 def login_page():
     render_marina_logo(max_width="200px", margin_bottom="10px")
     st.markdown("<div style='text-align:center; font-size:2.2rem; letter-spacing:6px; margin-top:10px;'>🍎 🥕 🥦 🍓 🍌 🍇 🥥 🥑</div>", unsafe_allow_html=True)
@@ -424,8 +414,10 @@ def login_page():
                     conn.close()
                     if user and user["password_hash"] == hash_password(password):
                         st.session_state.user = {
-                            "id": user["id"], "username": user["username"],
-                            "role": user["role"], "cpf": user["cpf"],
+                            "id": user["id"],
+                            "username": user["username"],
+                            "role": user["role"],
+                            "cpf": user["cpf"],
                             "group_access": user["group_access"],
                         }
                         st.rerun()
@@ -433,14 +425,13 @@ def login_page():
                         st.error("Credenciais invalidas")
                 else:
                     st.error("Preencha usuario e senha")
-        st.info("**Acesso padrao:**\n- Visitante: `visitante` / `visitante123`")
+        # AJUSTE: removida a caixa de info com login/senha de visitante
+
     st.markdown("<div style='text-align:center; font-size:2.2rem; letter-spacing:6px; margin-top:20px;'>🌽 🍅 🍆 🥒 🥬 🧅 🍐 🍊</div>", unsafe_allow_html=True)
 
-# ============================================================
-# ADMIN PANEL
-# ============================================================
 def admin_panel():
     st.markdown("## ⚙️ Gerenciamento de Usuarios")
+
     conn = get_db()
     users = conn.execute("SELECT id, username, role, cpf, group_access FROM users").fetchall()
     grupos = conn.execute("SELECT id, nome FROM grupos").fetchall()
@@ -449,16 +440,27 @@ def admin_panel():
     with st.expander("➕ Criar Novo Usuario", expanded=True):
         with st.form("create_user_form"):
             c1, c2, c3 = st.columns(3)
-            with c1: new_username = st.text_input("Usuario *")
-            with c2: new_password = st.text_input("Senha *", type="password")
+            with c1:
+                new_username = st.text_input("Usuario *")
+            with c2:
+                new_password = st.text_input("Senha *", type="password")
             with c3:
-                new_role = st.selectbox("Perfil", ["visitor", "group_admin", "admin"],
-                    format_func=lambda x: {"visitor": "Visitante", "group_admin": "Admin de Grupo", "admin": "Administrador Geral"}[x])
+                # AJUSTE: adicionado group_visitor como opção de perfil
+                new_role = st.selectbox("Perfil", ["visitor", "group_visitor", "group_admin", "admin"],
+                                        format_func=lambda x: {
+                                            "visitor": "Visitante Geral",
+                                            "group_visitor": "Visitante de Grupo",
+                                            "group_admin": "Admin de Grupo",
+                                            "admin": "Administrador Geral"
+                                        }[x])
+
             c4, c5 = st.columns(2)
-            with c4: new_cpf = st.text_input("CPF (opcional)")
+            with c4:
+                new_cpf = st.text_input("CPF (opcional)")
             with c5:
                 grupo_names = [""] + [g["nome"] for g in grupos]
-                new_group = st.selectbox("Grupo (para Admin de Grupo)", grupo_names)
+                new_group = st.selectbox("Grupo (para Admin/Visitante de Grupo)", grupo_names)
+
             if st.form_submit_button("Criar Usuario", use_container_width=True):
                 if new_username and new_password:
                     conn = get_db()
@@ -467,7 +469,7 @@ def admin_panel():
                             "INSERT INTO users (username, password_hash, role, cpf, group_access) VALUES (?, ?, ?, ?, ?)",
                             (new_username, hash_password(new_password), new_role,
                              new_cpf if new_cpf else None,
-                             new_group if new_role == "group_admin" and new_group else None))
+                             new_group if new_role in ("group_admin", "group_visitor") and new_group else None))
                         conn.commit()
                         st.success(f'Usuario "{new_username}" criado!')
                         st.rerun()
@@ -480,14 +482,22 @@ def admin_panel():
 
     st.markdown("### 👥 Usuarios Cadastrados")
     for u in users:
-        role_map = {"admin": "👑 Administrador Geral", "group_admin": "🔧 Admin de Grupo", "visitor": "👁 Visitante"}
+        role_map = {
+            "admin": "👑 Administrador Geral",
+            "group_admin": "🔧 Admin de Grupo",
+            "group_visitor": "👁 Visitante de Grupo",
+            "visitor": "👁 Visitante Geral"
+        }
         col1, col2, col3 = st.columns([3, 2, 1])
         with col1:
             st.markdown(f"**{u['username']}**")
             info_parts = []
-            if u["cpf"]: info_parts.append(f"CPF: {u['cpf']}")
-            if u["group_access"]: info_parts.append(f"Grupo: {u['group_access']}")
-            if info_parts: st.caption(" | ".join(info_parts))
+            if u["cpf"]:
+                info_parts.append(f"CPF: {u['cpf']}")
+            if u["group_access"]:
+                info_parts.append(f"Grupo: {u['group_access']}")
+            if info_parts:
+                st.caption(" | ".join(info_parts))
         with col2:
             st.markdown(f"`{role_map.get(u['role'], u['role'])}`")
         with col3:
@@ -502,8 +512,9 @@ def admin_panel():
 
     st.info("""
     **📖 Niveis de acesso:**
-    - **Visitante:** Pode apenas visualizar dados, sem fazer alteracoes.
-    - **Admin de Grupo:** Pode administrar um grupo especifico.
+    - **Visitante Geral:** Visualiza todos os grupos, sem alteracoes.
+    - **Visitante de Grupo:** Visualiza apenas o grupo vinculado, sem alteracoes.
+    - **Admin de Grupo:** Administra um grupo especifico.
     - **Administrador Geral:** Acesso total ao sistema.
     """)
 
@@ -526,55 +537,54 @@ def render_imla_header():
         logo_html = f'<img src="data:image/{mime_ext};base64,{logo_b64}" style="max-width:90px;max-height:58px;display:block;">'
     else:
         logo_html = ""
-    st.markdown(f"""
+    st.markdown(
+        f"""
         <div class="imla-header">
-        <div class="imla-logo-space">{logo_html}</div>
+        <div class="imla-logo-space">
+        {logo_html}
+        </div>
         <div class="imla-title">
             <span class="imla-title-green">INSTITUTO</span>
             <span class="imla-title-blue"> MÃE </span>
             <span class="imla-title-green">LALU</span>
         </div>
-        </div>""", unsafe_allow_html=True)
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
-# ============================================================
-# ✅ AJUSTE 3: Botões IMLA usando st.button real — funcionam
-#    via session_state sem depender de query_params ou links
-# ============================================================
+# AJUSTE 2 (definitivo): botões IMLA usam st.button real via session_state
+# ao clicar → seleciona turma + força aba Controle Coletivo + rerun
 def render_imla_turma_buttons(turmas):
     if not turmas:
         return
-    n = len(turmas)
-    cols = st.columns(n)
+    cols = st.columns(len(turmas))
     for i, turma in enumerate(turmas):
         nome = turma["nome"]
         cor = IMLA_TURMA_COLORS.get(nome, "#6741d9")
-        texto_cor = "#333" if cor in ["#ffc713", "#ffa500"] else "white"
         with cols[i]:
-            # Visual colorido
+            # Etiqueta colorida visual (não clicável)
             st.markdown(
-                f'<div style="background:{cor};color:{texto_cor};padding:10px 8px;'
-                f'border-radius:999px;font-weight:800;font-size:0.85rem;'
-                f'text-align:center;margin-bottom:2px;pointer-events:none;">{nome}</div>',
+                f'<div style="background:{cor};color:white;padding:10px 8px;border-radius:999px;'
+                f'font-weight:800;font-size:0.85rem;text-align:center;margin-bottom:4px;">{nome}</div>',
                 unsafe_allow_html=True
             )
-            # Botão funcional invisível abaixo do visual
-            if st.button(f"▶ {nome}", key=f"imla_turma_btn_{i}", use_container_width=True):
-                st.session_state["imla_turma_selecionada"] = nome
-                st.session_state["imla_ir_coletivo"] = True
+            # Botão real funcional abaixo
+            if st.button("Abrir →", key=f"imla_btn_{i}", use_container_width=True):
+                st.session_state["_imla_turma"] = nome
+                st.session_state["_imla_goto_coletivo"] = True
                 st.rerun()
 
-# ============================================================
-# GRÁFICOS
-# ============================================================
 def render_growth_chart(sexo, tipo, medicoes_data, titulo, eixo_x_campo, eixo_y_campo, label_x, label_y):
     try:
         import plotly.graph_objects as go
     except ImportError:
-        st.warning("Plotly nao instalado.")
+        st.warning("Plotly nao instalado. Execute: pip install plotly")
         return
 
     ref = get_ref(sexo, tipo)
     if not ref:
+        st.warning(f"Referencia OMS nao disponivel para {titulo}")
         return
 
     pontos = []
@@ -583,11 +593,13 @@ def render_growth_chart(sexo, tipo, medicoes_data, titulo, eixo_x_campo, eixo_y_
         vy = m["peso"] if eixo_y_campo == "peso" else (m["altura"] if eixo_y_campo == "altura" else m["imc"])
         if vx and vy and vx > 0 and vy > 0:
             pontos.append({"vx": vx, "vy": vy, "data": m.get("data", "")})
+
     if not pontos:
         return
 
     vx_vals = [p["vx"] for p in pontos]
-    vx_min, vx_max = min(vx_vals), max(vx_vals)
+    vx_min = min(vx_vals)
+    vx_max = max(vx_vals)
     margem = max((vx_max - vx_min) * 0.5, 10)
     x_min = max(0, vx_min - margem)
     x_max = vx_max + margem
@@ -595,34 +607,54 @@ def render_growth_chart(sexo, tipo, medicoes_data, titulo, eixo_x_campo, eixo_y_
     eixo = ref.get("meses") if eixo_x_campo != "altura" else ref.get("altura")
     if not eixo:
         return
-    filtered_eixo = [x for x in eixo if x_min <= x <= x_max]
+
+    filtered_eixo = [x for x in eixo if x >= x_min and x <= x_max]
     if not filtered_eixo:
         return
 
-    z_keys = ["z-3","z-2","z-1","z0","z1","z2","z3"]
-    z_colors = {"z3":"#DC143C","z2":"#FF8C00","z1":"#4682B4","z0":"#2E8B57","z-1":"#4682B4","z-2":"#FF8C00","z-3":"#DC143C"}
-    z_labels = {"z3":"+3","z2":"+2","z1":"+1","z0":"Mediana","z-1":"-1","z-2":"-2","z-3":"-3"}
-    z_dash = {"z3":"dot","z2":"dash","z1":"dash","z0":"solid","z-1":"dash","z-2":"dash","z-3":"dot"}
+    z_keys = ["z-3", "z-2", "z-1", "z0", "z1", "z2", "z3"]
+    z_colors = {"z3": "#DC143C", "z2": "#FF8C00", "z1": "#4682B4", "z0": "#2E8B57",
+                "z-1": "#4682B4", "z-2": "#FF8C00", "z-3": "#DC143C"}
+    z_labels = {"z3": "+3", "z2": "+2", "z1": "+1", "z0": "Mediana", "z-1": "-1", "z-2": "-2", "z-3": "-3"}
+    z_dash = {"z3": "dot", "z2": "dash", "z1": "dash", "z0": "solid", "z-1": "dash", "z-2": "dash", "z-3": "dot"}
 
     fig = go.Figure()
+
     for zk in z_keys:
         z_arr = ref[zk]
-        y_vals = [z_arr[eixo.index(x)] if x in eixo else None for x in filtered_eixo]
-        fig.add_trace(go.Scatter(x=filtered_eixo, y=y_vals, mode="lines", name=z_labels[zk],
-            line=dict(color=z_colors[zk], width=2 if zk=="z0" else 1, dash=z_dash[zk])))
+        y_vals = []
+        for x in filtered_eixo:
+            idx = eixo.index(x) if x in eixo else -1
+            if idx >= 0:
+                y_vals.append(z_arr[idx])
+            else:
+                y_vals.append(None)
+        fig.add_trace(go.Scatter(
+            x=filtered_eixo, y=y_vals, mode="lines",
+            name=z_labels[zk],
+            line=dict(color=z_colors[zk], width=2 if zk == "z0" else 1, dash=z_dash[zk]),
+        ))
 
     fig.add_trace(go.Scatter(
-        x=[p["vx"] for p in pontos], y=[p["vy"] for p in pontos],
-        mode="markers+lines", name="Medicoes",
+        x=[p["vx"] for p in pontos],
+        y=[p["vy"] for p in pontos],
+        mode="markers+lines",
+        name="Medicoes",
         marker=dict(size=10, color="#7B1FA2", symbol="circle"),
         line=dict(color="#7B1FA2", width=2),
-        text=[f"Data: {format_date_br(p['data'])}" for p in pontos]))
+        text=[f"Data: {format_date_br(p['data'])}" for p in pontos],
+    ))
 
     fig.update_layout(
-        title=dict(text=titulo, font=dict(color="#1565C0" if sexo=="M" else "#AD1457", size=16)),
-        xaxis_title=label_x, yaxis_title=label_y, height=420,
-        template="plotly_white", legend=dict(font=dict(size=10)),
-        margin=dict(l=60, r=20, t=50, b=60))
+        title=dict(text=titulo, font=dict(color="#1565C0" if sexo == "M" else "#AD1457", size=16)),
+        xaxis_title=label_x,
+        yaxis_title=label_y,
+        height=420,
+        template="plotly_white",
+        legend=dict(font=dict(size=10)),
+        margin=dict(l=60, r=20, t=50, b=60),
+    )
+
     st.plotly_chart(fig, use_container_width=True)
 
     tipo_eixo = "altura" if eixo_x_campo == "altura" else "meses"
@@ -633,24 +665,26 @@ def render_growth_chart(sexo, tipo, medicoes_data, titulo, eixo_x_campo, eixo_y_
         cor_txt = "#333" if cor == "#FFD700" else "white"
         st.markdown(
             f'<span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:{cor};margin-right:6px;"></span>'
-            f'<span style="font-size:0.85rem;color:#555;">Medicao {i+1} ({p["vx"]:.1f} {"cm" if eixo_x_campo=="altura" else "meses"}, {p["vy"]:.1f}):</span> '
+            f'<span style="font-size:0.85rem;color:#555;">Medicao {i+1} ({p["vx"]:.1f} {"cm" if eixo_x_campo == "altura" else "meses"}, {p["vy"]:.1f}):</span> '
             f'<span style="background:{cor};color:{cor_txt};padding:3px 10px;border-radius:6px;font-weight:bold;font-size:0.82rem;">{status}</span>',
-            unsafe_allow_html=True)
+            unsafe_allow_html=True
+        )
+
     return fig
 
-# ============================================================
-# MAIN APP
-# ============================================================
 def main_app():
     user = st.session_state.user
     conn = get_db()
 
     with st.sidebar:
-        # ✅ Logo com blend para fundir fundo branco com fundo roxo da sidebar
-        render_marina_logo(max_width="150px", margin_bottom="6px", blend=True)
-
+        render_marina_logo(max_width="150px", margin_bottom="6px")
         st.markdown(f"### 🍎 NutriMais")
-        role_labels = {"admin": "👑 Admin", "group_admin": "🔧 Admin Grupo", "visitor": "👁 Visitante"}
+        role_labels = {
+            "admin": "👑 Admin",
+            "group_admin": "🔧 Admin Grupo",
+            "group_visitor": "👁 Visitante Grupo",
+            "visitor": "👁 Visitante"
+        }
         st.markdown(f"**{role_labels.get(user['role'], user['role'])}** | {user['username']}")
 
         if st.button("🚪 Sair", use_container_width=True):
@@ -659,8 +693,8 @@ def main_app():
 
         st.divider()
 
-        # ✅ AJUSTE 3: Se viemos de um botão IMLA, força aba Controle Coletivo
-        if st.session_state.get("imla_ir_coletivo"):
+        # AJUSTE: aba Controle Coletivo selecionada automaticamente quando vem de botão IMLA
+        if st.session_state.get("_imla_goto_coletivo"):
             pagina_idx = 1
         else:
             pagina_idx = 0
@@ -668,18 +702,17 @@ def main_app():
         pagina = st.radio("Navegacao", ["📋 Sistema", "📊 Controle Coletivo"],
                           index=pagina_idx, label_visibility="collapsed")
 
-        # Reseta flag quando usuário muda manualmente
         if pagina == "📋 Sistema":
-            st.session_state["imla_ir_coletivo"] = False
+            st.session_state["_imla_goto_coletivo"] = False
 
         st.divider()
 
         grupos = conn.execute("SELECT id, nome FROM grupos").fetchall()
 
+        # AJUSTE: Criar Grupo fica só na sidebar (admin geral), sem formulários de turma/aluno aqui
         if can_write(user):
             st.markdown("##### 📂 Cadastrar Grupo")
-            novo_grupo = st.text_input("Nome do grupo", key="novo_grupo",
-                                       label_visibility="collapsed", placeholder="Nome do grupo")
+            novo_grupo = st.text_input("Nome do grupo", key="novo_grupo", label_visibility="collapsed", placeholder="Nome do grupo")
             if st.button("Criar Grupo", use_container_width=True, key="btn_criar_grupo"):
                 if novo_grupo and novo_grupo.strip():
                     try:
@@ -700,50 +733,16 @@ def main_app():
         turma_sel = None
         criancas = []
         turmas = []
-
         if grupo_sel:
-            turmas = conn.execute("SELECT id, nome, grupo_id FROM turmas WHERE grupo_id = ?",
-                                  (grupo_sel["id"],)).fetchall()
-
-            if can_write(user, grupo_sel["nome"]):
-                st.markdown("##### ➕ Cadastrar Turma")
-                nova_turma = st.text_input("Nome da turma", key="nova_turma",
-                                           label_visibility="collapsed", placeholder="Nome da turma")
-                if st.button("Criar Turma", use_container_width=True, key="btn_criar_turma"):
-                    if nova_turma and nova_turma.strip():
-                        conn.execute("INSERT INTO turmas (nome, grupo_id) VALUES (?, ?)",
-                                     (nova_turma.strip(), grupo_sel["id"]))
-                        conn.commit()
-                        st.success(f'Turma "{nova_turma.strip()}" criada!')
-                        st.rerun()
-
-                # Remover turma
-                st.markdown("##### 🗑 Remover Turma")
-                turma_names_rem = ["-- Selecione --"] + [t["nome"] for t in turmas]
-                turma_rem_nome = st.selectbox("Turma para remover", turma_names_rem,
-                                              label_visibility="collapsed", key="sel_turma_remover")
-                if turma_rem_nome != "-- Selecione --":
-                    turma_rem = next((dict(t) for t in turmas if t["nome"] == turma_rem_nome), None)
-                    if turma_rem:
-                        if st.button("🗑 Confirmar Remoção", use_container_width=True,
-                                     key="btn_remover_turma", type="primary"):
-                            cris = conn.execute("SELECT id FROM criancas WHERE turma_id = ?",
-                                               (turma_rem["id"],)).fetchall()
-                            for cri in cris:
-                                conn.execute("DELETE FROM medicoes WHERE crianca_id = ?", (cri["id"],))
-                            conn.execute("DELETE FROM criancas WHERE turma_id = ?", (turma_rem["id"],))
-                            conn.execute("DELETE FROM turmas WHERE id = ?", (turma_rem["id"],))
-                            conn.commit()
-                            st.success(f'Turma "{turma_rem_nome}" removida!')
-                            st.rerun()
+            turmas = conn.execute("SELECT id, nome, grupo_id FROM turmas WHERE grupo_id = ?", (grupo_sel["id"],)).fetchall()
 
             st.markdown("##### 📋 Turma")
             turma_names = ["-- Selecione --"] + [t["nome"] for t in turmas]
 
-            # ✅ AJUSTE 3: Pré-seleciona turma se viemos de botão IMLA
-            turma_imla = st.session_state.get("imla_turma_selecionada")
-            if is_imla_group(grupo_sel) and turma_imla and turma_imla in turma_names:
-                turma_default_idx = turma_names.index(turma_imla)
+            # AJUSTE: pré-seleciona turma ao clicar no botão IMLA
+            imla_turma = st.session_state.get("_imla_turma")
+            if is_imla_group(grupo_sel) and imla_turma and imla_turma in turma_names:
+                turma_default_idx = turma_names.index(imla_turma)
             else:
                 turma_default_idx = 0
 
@@ -751,33 +750,15 @@ def main_app():
                                           label_visibility="collapsed", key="sel_turma")
             if turma_sel_name != "-- Selecione --":
                 turma_sel = next((dict(t) for t in turmas if t["nome"] == turma_sel_name), None)
-                # Limpa a flag de turma IMLA se o usuário mudou manualmente
-                if turma_imla and turma_sel_name != turma_imla:
-                    st.session_state["imla_turma_selecionada"] = None
 
         if grupo_sel and turma_sel:
             criancas_raw = conn.execute(
                 "SELECT id, nome, sexo, data_nascimento, grupo_id, turma_id FROM criancas WHERE turma_id = ?",
-                (turma_sel["id"],)).fetchall()
+                (turma_sel["id"],)
+            ).fetchall()
             criancas = [dict(c) for c in criancas_raw]
 
-            if can_write(user, grupo_sel["nome"]):
-                st.markdown("##### ➕ Cadastrar Crianca")
-                novo_nome = st.text_input("Nome completo", key="novo_nome_crianca",
-                                          label_visibility="collapsed", placeholder="Nome completo")
-                novo_sexo = st.selectbox("Sexo", ["Masculino", "Feminino"], key="novo_sexo_crianca")
-                nova_nasc = st.date_input("Data de nascimento", value=date(2018, 1, 1), key="nova_nasc_crianca")
-                if st.button("Cadastrar Crianca", use_container_width=True, key="btn_criar_crianca"):
-                    if novo_nome and novo_nome.strip():
-                        sexo_val = "M" if novo_sexo == "Masculino" else "F"
-                        conn.execute(
-                            "INSERT INTO criancas (nome, sexo, data_nascimento, grupo_id, turma_id) VALUES (?, ?, ?, ?, ?)",
-                            (novo_nome.strip(), sexo_val, str(nova_nasc), grupo_sel["id"], turma_sel["id"]))
-                        conn.commit()
-                        st.success(f'{novo_nome.strip()} cadastrado(a)!')
-                        st.rerun()
-
-    # Header principal
+    # ── cabeçalho principal (IDÊNTICO ao original) ────────────
     header_parts = ["🍎 NutriMais"]
     if grupo_sel and turma_sel:
         header_parts.append(f" | {grupo_sel['nome']} — {turma_sel['nome']}")
@@ -811,7 +792,6 @@ def main_app():
         admin_panel()
         return
 
-    # ✅ Botões IMLA
     if is_imla_group(grupo_sel) and grupo_sel:
         render_imla_turma_buttons(turmas)
 
@@ -821,24 +801,63 @@ def main_app():
             <div style='font-size:3rem; margin-bottom:16px;'>📂</div>
             <h2 style='color:#4A148C;'>Selecione um Grupo</h2>
             <p>Use o menu lateral para selecionar ou criar um grupo.</p>
-        </div>""", unsafe_allow_html=True)
+        </div>
+        """, unsafe_allow_html=True)
         conn.close()
         return
 
     if not turma_sel:
-        st.markdown(f"""
-        <div style='text-align:center; padding:60px 20px; color:#7B1FA2;'>
-            <div style='font-size:3rem; margin-bottom:16px;'>📋</div>
-            <h2 style='color:#4A148C;'>Selecione uma Turma</h2>
-            <p>Use o menu lateral para selecionar ou criar uma turma em <strong>{grupo_sel['nome']}</strong>.</p>
-        </div>""", unsafe_allow_html=True)
+        # AJUSTE: formulários de turma e criança aparecem aqui na tela central
+        if can_write(user, grupo_sel["nome"]):
+            st.markdown("---")
+            col_t, col_c = st.columns(2)
+
+            with col_t:
+                st.markdown("#### ➕ Cadastrar Turma")
+                nova_turma = st.text_input("Nome da turma", key="nova_turma", placeholder="Nome da turma")
+                if st.button("Criar Turma", use_container_width=True, key="btn_criar_turma"):
+                    if nova_turma and nova_turma.strip():
+                        conn.execute("INSERT INTO turmas (nome, grupo_id) VALUES (?, ?)", (nova_turma.strip(), grupo_sel["id"]))
+                        conn.commit()
+                        st.success(f'Turma "{nova_turma.strip()}" criada!')
+                        st.rerun()
+
+                st.markdown("#### 🗑 Remover Turma")
+                turma_names_rem = ["-- Selecione --"] + [t["nome"] for t in turmas]
+                turma_rem_nome = st.selectbox("Turma para remover", turma_names_rem, key="sel_turma_remover")
+                if turma_rem_nome != "-- Selecione --":
+                    turma_rem = next((dict(t) for t in turmas if t["nome"] == turma_rem_nome), None)
+                    if turma_rem:
+                        if st.button("🗑 Confirmar Remoção da Turma", use_container_width=True, key="btn_remover_turma", type="primary"):
+                            cris = conn.execute("SELECT id FROM criancas WHERE turma_id = ?", (turma_rem["id"],)).fetchall()
+                            for cri in cris:
+                                conn.execute("DELETE FROM medicoes WHERE crianca_id = ?", (cri["id"],))
+                            conn.execute("DELETE FROM criancas WHERE turma_id = ?", (turma_rem["id"],))
+                            conn.execute("DELETE FROM turmas WHERE id = ?", (turma_rem["id"],))
+                            conn.commit()
+                            st.success(f'Turma "{turma_rem_nome}" removida!')
+                            st.rerun()
+
+            with col_c:
+                st.markdown("#### ℹ️ Como usar")
+                st.info("Selecione uma turma no menu lateral para ver os alunos e registrar medicoes.")
+
+        else:
+            st.markdown(f"""
+            <div style='text-align:center; padding:60px 20px; color:#7B1FA2;'>
+                <div style='font-size:3rem; margin-bottom:16px;'>📋</div>
+                <h2 style='color:#4A148C;'>Selecione uma Turma</h2>
+                <p>Use o menu lateral para selecionar uma turma em <strong>{grupo_sel['nome']}</strong>.</p>
+            </div>
+            """, unsafe_allow_html=True)
         conn.close()
         return
 
     for c in criancas:
         meds = conn.execute(
             "SELECT id, crianca_id, data_medicao, peso, altura FROM medicoes WHERE crianca_id = ?",
-            (c["id"],)).fetchall()
+            (c["id"],)
+        ).fetchall()
         c["medicoes"] = [dict(m) for m in meds]
 
     if pagina == "📊 Controle Coletivo":
@@ -846,14 +865,18 @@ def main_app():
         st.markdown(f"**Grupo:** {grupo_sel['nome']} | **Turma:** {turma_sel['nome']} | **Total:** {len(criancas)} criancas")
 
         legend_items = [
-            ("#2E8B57","Eutrofia / Adequado","white"),("#FFD700","Risco de Sobrepeso","#333"),
-            ("#FF8C00","Sobrepeso","white"),("#FF0000","Obesidade","white"),
-            ("#FF4500","Baixo Peso / Magreza","white"),("#8B0000","Muito Baixo / Magreza Acentuada","white"),
-            ("#808080","Sem Medicao","white"),
+            ("#2E8B57", "Eutrofia / Adequado", "white"),
+            ("#FFD700", "Risco de Sobrepeso", "#333"),
+            ("#FF8C00", "Sobrepeso", "white"),
+            ("#FF0000", "Obesidade", "white"),
+            ("#FF4500", "Baixo Peso / Magreza", "white"),
+            ("#8B0000", "Muito Baixo / Magreza Acentuada", "white"),
+            ("#808080", "Sem Medicao", "white"),
         ]
         legend_html = " ".join([
             f'<span style="background:{cor};color:{txt};padding:3px 10px;border-radius:5px;font-size:0.78rem;margin-right:4px;">{label}</span>'
-            for cor, label, txt in legend_items])
+            for cor, label, txt in legend_items
+        ])
         st.markdown(legend_html, unsafe_allow_html=True)
 
         if criancas:
@@ -870,7 +893,8 @@ def main_app():
                 <th style="padding:10px 8px;text-align:center;">Altura (cm)</th>
                 <th style="padding:10px 8px;text-align:center;">IMC</th>
                 <th style="padding:10px 8px;text-align:center;">Diagnostico Nutricional</th>
-            </tr></thead><tbody>"""
+            </tr></thead><tbody>
+            """
             for i, c in enumerate(criancas):
                 bg = "#FAF0FF" if i % 2 == 0 else "white"
                 meds = c["medicoes"]
@@ -879,7 +903,9 @@ def main_app():
                     if m["peso"] > 0 and m["altura"] > 0:
                         ultima = m
                         break
+
                 idade_meses = round(calcular_idade_meses(c["data_nascimento"], str(date.today())))
+
                 if ultima:
                     imc = ultima["peso"] / pow(ultima["altura"] / 100, 2)
                     meses_med = calcular_idade_meses(c["data_nascimento"], ultima["data_medicao"])
@@ -892,6 +918,7 @@ def main_app():
                 else:
                     status, cor = "Sem medicao", "#808080"
                     imc = 0
+
                 peso_txt = f"{ultima['peso']:.1f}" if ultima else "-"
                 altura_txt = f"{ultima['altura']:.1f}" if ultima else "-"
                 imc_txt = f"{imc:.1f}" if ultima else "-"
@@ -907,9 +934,12 @@ def main_app():
                     <td style="padding:9px 8px;text-align:center;">{altura_txt}</td>
                     <td style="padding:9px 8px;text-align:center;">{imc_txt}</td>
                     <td style="padding:9px 14px;text-align:center;">
-                        <span style="background:{cor};color:{cor_txt};padding:5px 10px;border-radius:7px;font-weight:bold;font-size:0.8rem;display:inline-block;min-width:160px;">{status}</span>
+                        <span style="background:{cor};color:{cor_txt};padding:5px 10px;border-radius:7px;font-weight:bold;font-size:0.8rem;display:inline-block;min-width:160px;">
+                            {status}
+                        </span>
                     </td>
-                </tr>"""
+                </tr>
+                """
             table_html += "</tbody></table></div>"
             table_height = min(700, 120 + len(criancas) * 48)
             components.html(table_html, height=table_height, scrolling=True)
@@ -921,16 +951,34 @@ def main_app():
             nutricional completo, como exames bioquimicos, avaliacao dos habitos alimentares e exames clinicos. Por isso,
             estes resultados nao substituem o diagnostico individualizado feito por um profissional capacitado e habilitado.
             Essas informacoes sao para fins de conhecimento e rastreamento do perfil nutricional da instituicao.
-        </div>""", unsafe_allow_html=True)
+        </div>
+        """, unsafe_allow_html=True)
 
     else:
         if not criancas:
-            st.markdown("""
-            <div style='text-align:center; padding:60px 20px; color:#7B1FA2;'>
-                <div style='font-size:3rem; margin-bottom:16px;'>👶</div>
-                <h2 style='color:#4A148C;'>Nenhuma crianca cadastrada</h2>
-                <p>Use o menu lateral para cadastrar criancas nesta turma.</p>
-            </div>""", unsafe_allow_html=True)
+            # AJUSTE: cadastro de criança na tela central quando turma está selecionada mas vazia
+            if can_write(user, grupo_sel["nome"]):
+                st.markdown("#### ➕ Cadastrar Crianca nesta Turma")
+                novo_nome = st.text_input("Nome completo", key="novo_nome_crianca", placeholder="Nome completo")
+                novo_sexo = st.selectbox("Sexo", ["Masculino", "Feminino"], key="novo_sexo_crianca")
+                nova_nasc = st.date_input("Data de nascimento", value=date(2018, 1, 1), key="nova_nasc_crianca")
+                if st.button("Cadastrar Crianca", use_container_width=True, key="btn_criar_crianca"):
+                    if novo_nome and novo_nome.strip():
+                        sexo_val = "M" if novo_sexo == "Masculino" else "F"
+                        conn.execute(
+                            "INSERT INTO criancas (nome, sexo, data_nascimento, grupo_id, turma_id) VALUES (?, ?, ?, ?, ?)",
+                            (novo_nome.strip(), sexo_val, str(nova_nasc), grupo_sel["id"], turma_sel["id"]))
+                        conn.commit()
+                        st.success(f'{novo_nome.strip()} cadastrado(a)!')
+                        st.rerun()
+            else:
+                st.markdown("""
+                <div style='text-align:center; padding:60px 20px; color:#7B1FA2;'>
+                    <div style='font-size:3rem; margin-bottom:16px;'>👶</div>
+                    <h2 style='color:#4A148C;'>Nenhuma crianca cadastrada</h2>
+                    <p>Use o menu lateral para cadastrar criancas nesta turma.</p>
+                </div>
+                """, unsafe_allow_html=True)
         else:
             crianca_names = [c["nome"] for c in criancas]
             sel_crianca_nome = st.selectbox("👶 Selecione a crianca:", crianca_names)
@@ -938,9 +986,11 @@ def main_app():
 
             if crianca_sel:
                 write_enabled = can_write(user, grupo_sel["nome"])
+
+                # AJUSTE: botões de adicionar/remover criança na tela central
                 if write_enabled:
-                    col_del = st.columns([4, 1])
-                    with col_del[1]:
+                    btn_col1, btn_col2 = st.columns([3, 1])
+                    with btn_col2:
                         if st.button("🗑 Remover Crianca", key="btn_remover_crianca"):
                             conn2 = get_db()
                             conn2.execute("DELETE FROM medicoes WHERE crianca_id = ?", (crianca_sel["id"],))
@@ -948,16 +998,33 @@ def main_app():
                             conn2.commit()
                             conn2.close()
                             st.rerun()
+                    with btn_col1:
+                        with st.expander("➕ Cadastrar Nova Crianca nesta Turma"):
+                            novo_nome2 = st.text_input("Nome completo", key="novo_nome_crianca2", placeholder="Nome completo")
+                            novo_sexo2 = st.selectbox("Sexo", ["Masculino", "Feminino"], key="novo_sexo_crianca2")
+                            nova_nasc2 = st.date_input("Data de nascimento", value=date(2018, 1, 1), key="nova_nasc_crianca2")
+                            if st.button("Cadastrar", use_container_width=True, key="btn_criar_crianca2"):
+                                if novo_nome2 and novo_nome2.strip():
+                                    sexo_val2 = "M" if novo_sexo2 == "Masculino" else "F"
+                                    conn.execute(
+                                        "INSERT INTO criancas (nome, sexo, data_nascimento, grupo_id, turma_id) VALUES (?, ?, ?, ?, ?)",
+                                        (novo_nome2.strip(), sexo_val2, str(nova_nasc2), grupo_sel["id"], turma_sel["id"]))
+                                    conn.commit()
+                                    st.success(f'{novo_nome2.strip()} cadastrado(a)!')
+                                    st.rerun()
 
                 st.markdown(f"## 📋 Ficha: {crianca_sel['nome']}")
                 sexo_label = "Masculino" if crianca_sel["sexo"] == "M" else "Feminino"
                 st.markdown(
                     f"**Sexo:** {sexo_label} | **Data de Nascimento:** {format_date_br(crianca_sel['data_nascimento'])} | "
-                    f"**Grupo:** {grupo_sel['nome']} | **Turma:** {turma_sel['nome']}")
+                    f"**Grupo:** {grupo_sel['nome']} | **Turma:** {turma_sel['nome']}"
+                )
 
                 st.markdown("### 📅 Medicoes")
+
                 meds = crianca_sel["medicoes"]
                 num_slots = max(4, len(meds))
+
                 med_cols = st.columns(min(num_slots, 4))
                 updated_meds = []
 
@@ -965,6 +1032,7 @@ def main_app():
                     with med_cols[i]:
                         st.markdown(f"**Medicao {i + 1}**")
                         existing = meds[i] if i < len(meds) else None
+
                         if existing:
                             try:
                                 default_date = datetime.strptime(existing["data_medicao"], "%Y-%m-%d").date()
@@ -982,25 +1050,36 @@ def main_app():
                         data_med = st.date_input("Data", value=default_date, key=f"med_data_{i}", disabled=not write_enabled)
                         peso = st.number_input("Peso (kg)", value=default_peso, min_value=0.0, max_value=200.0, step=0.1, key=f"med_peso_{i}", disabled=not write_enabled)
                         altura = st.number_input("Altura (cm)", value=default_altura, min_value=0.0, max_value=250.0, step=0.1, key=f"med_alt_{i}", disabled=not write_enabled)
-                        updated_meds.append({"id": med_id, "data_medicao": str(data_med), "peso": peso, "altura": altura})
+
+                        updated_meds.append({
+                            "id": med_id,
+                            "data_medicao": str(data_med),
+                            "peso": peso,
+                            "altura": altura,
+                        })
 
                         if peso > 0 and altura > 0:
                             meses = calcular_idade_meses(crianca_sel["data_nascimento"], str(data_med))
                             imc = round(peso / pow(altura / 100, 2) * 100) / 100
+
                             sexo = crianca_sel["sexo"]
                             ref = get_ref(sexo, "imc_idade")
-                            if ref and 0 <= meses <= 228:
+                            if ref and meses >= 0 and meses <= 228:
                                 lim = obter_limites(ref, meses, "meses")
                                 status, cor = classificar_nutricional(imc, lim, "imc_idade", meses)
                                 z_val = calcular_zscore(ref, meses, "meses", imc)
                             else:
                                 status, cor = "Fora da faixa", "#808080"
                                 z_val = None
+
                             st.markdown(f"📅 **Idade:** {meses:.1f} meses | 📊 **IMC:** {imc:.2f}")
+
                             cor_txt = "#333" if cor == "#FFD700" else "white"
                             st.markdown(
                                 f'<div style="background:{cor};color:{cor_txt};padding:6px 10px;border-radius:6px;font-weight:bold;font-size:0.82rem;text-align:center;">{status}</div>',
-                                unsafe_allow_html=True)
+                                unsafe_allow_html=True
+                            )
+
                             if z_val is not None:
                                 st.caption(f"Escore-Z: {'+' if z_val >= 0 else ''}{z_val:.2f} DP | Percentil: {formatar_percentil(z_val)}")
 
@@ -1010,11 +1089,13 @@ def main_app():
                         for med in updated_meds:
                             if med["peso"] > 0 and med["altura"] > 0 and med["data_medicao"]:
                                 if med["id"]:
-                                    conn2.execute("UPDATE medicoes SET data_medicao=?, peso=?, altura=? WHERE id=?",
-                                                  (med["data_medicao"], med["peso"], med["altura"], med["id"]))
+                                    conn2.execute(
+                                        "UPDATE medicoes SET data_medicao = ?, peso = ?, altura = ? WHERE id = ?",
+                                        (med["data_medicao"], med["peso"], med["altura"], med["id"]))
                                 else:
-                                    conn2.execute("INSERT INTO medicoes (crianca_id, data_medicao, peso, altura) VALUES (?,?,?,?)",
-                                                  (crianca_sel["id"], med["data_medicao"], med["peso"], med["altura"]))
+                                    conn2.execute(
+                                        "INSERT INTO medicoes (crianca_id, data_medicao, peso, altura) VALUES (?, ?, ?, ?)",
+                                        (crianca_sel["id"], med["data_medicao"], med["peso"], med["altura"]))
                         conn2.commit()
                         conn2.close()
                         st.success("Medicoes salvas com sucesso!")
@@ -1022,30 +1103,42 @@ def main_app():
 
                 valid_meds = []
                 all_meds = conn.execute(
-                    "SELECT data_medicao, peso, altura FROM medicoes WHERE crianca_id=? AND peso>0 AND altura>0",
-                    (crianca_sel["id"],)).fetchall()
+                    "SELECT data_medicao, peso, altura FROM medicoes WHERE crianca_id = ? AND peso > 0 AND altura > 0",
+                    (crianca_sel["id"],)
+                ).fetchall()
                 for m in all_meds:
                     meses = calcular_idade_meses(crianca_sel["data_nascimento"], m["data_medicao"])
                     imc = round(m["peso"] / pow(m["altura"] / 100, 2) * 100) / 100
-                    valid_meds.append({"meses": meses, "peso": m["peso"], "altura": m["altura"], "imc": imc, "data": m["data_medicao"]})
+                    valid_meds.append({
+                        "meses": meses,
+                        "peso": m["peso"],
+                        "altura": m["altura"],
+                        "imc": imc,
+                        "data": m["data_medicao"],
+                    })
 
                 if valid_meds and crianca_sel["sexo"]:
                     st.markdown("### 📊 Curvas de Crescimento OMS")
+
                     graficos = [
-                        {"tipo":"peso_idade","titulo":"Peso x Idade","eixo_x":"meses","eixo_y":"peso","label_x":"Idade (meses)","label_y":"Peso (kg)"},
-                        {"tipo":"estatura_idade","titulo":"Estatura x Idade","eixo_x":"meses","eixo_y":"altura","label_x":"Idade (meses)","label_y":"Estatura (cm)"},
-                        {"tipo":"imc_idade","titulo":"IMC x Idade","eixo_x":"meses","eixo_y":"imc","label_x":"Idade (meses)","label_y":"IMC (kg/m2)"},
-                        {"tipo":"peso_estatura","titulo":"Peso x Estatura","eixo_x":"altura","eixo_y":"peso","label_x":"Estatura (cm)","label_y":"Peso (kg)"},
+                        {"tipo": "peso_idade", "titulo": "Peso x Idade", "eixo_x": "meses", "eixo_y": "peso", "label_x": "Idade (meses)", "label_y": "Peso (kg)"},
+                        {"tipo": "estatura_idade", "titulo": "Estatura x Idade", "eixo_x": "meses", "eixo_y": "altura", "label_x": "Idade (meses)", "label_y": "Estatura (cm)"},
+                        {"tipo": "imc_idade", "titulo": "IMC x Idade", "eixo_x": "meses", "eixo_y": "imc", "label_x": "Idade (meses)", "label_y": "IMC (kg/m2)"},
+                        {"tipo": "peso_estatura", "titulo": "Peso x Estatura", "eixo_x": "altura", "eixo_y": "peso", "label_x": "Estatura (cm)", "label_y": "Peso (kg)"},
                     ]
+
                     chart_cols = st.columns(2)
                     pdf_graficos = []
                     for idx, g in enumerate(graficos):
                         ref_check = get_ref(crianca_sel["sexo"], g["tipo"])
-                        valid_for_chart = [m for m in valid_meds if (m["altura"] if g["eixo_x"]=="altura" else m["meses"]) > 0]
+                        valid_for_chart = [m for m in valid_meds if (m["altura"] if g["eixo_x"] == "altura" else m["meses"]) > 0]
                         if ref_check and valid_for_chart:
                             with chart_cols[idx % 2]:
-                                fig_pdf = render_growth_chart(crianca_sel["sexo"], g["tipo"], valid_meds,
-                                    g["titulo"], g["eixo_x"], g["eixo_y"], g["label_x"], g["label_y"])
+                                fig_pdf = render_growth_chart(
+                                    crianca_sel["sexo"], g["tipo"], valid_meds,
+                                    g["titulo"], g["eixo_x"], g["eixo_y"],
+                                    g["label_x"], g["label_y"]
+                                )
                                 if fig_pdf:
                                     pdf_graficos.append((g["titulo"], g["tipo"], fig_pdf))
 
@@ -1054,11 +1147,15 @@ def main_app():
                             for titulo_pdf, tipo_pdf, fig_pdf in pdf_graficos:
                                 try:
                                     pdf_bytes = fig_pdf.to_image(format="pdf")
-                                    nome_arquivo = titulo_pdf.lower().replace(" ","_").replace("x","por")
+                                    nome_arquivo = titulo_pdf.lower().replace(" ", "_").replace("x", "por")
                                     st.download_button(
-                                        label=f"Baixar {titulo_pdf} em PDF", data=pdf_bytes,
-                                        file_name=f"curva_{nome_arquivo}.pdf", mime="application/pdf",
-                                        use_container_width=True, key=f"download_pdf_{crianca_sel['id']}_{tipo_pdf}")
+                                        label=f"Baixar {titulo_pdf} em PDF",
+                                        data=pdf_bytes,
+                                        file_name=f"curva_{nome_arquivo}.pdf",
+                                        mime="application/pdf",
+                                        use_container_width=True,
+                                        key=f"download_pdf_{crianca_sel['id']}_{tipo_pdf}"
+                                    )
                                 except Exception:
                                     st.info("Para habilitar o download dos graficos em PDF, instale tambem o pacote kaleido: pip install kaleido")
                                     break
@@ -1070,15 +1167,14 @@ def main_app():
                         nutricional completo, como exames bioquimicos, avaliacao dos habitos alimentares e exames clinicos. Por isso,
                         estes resultados nao substituem o diagnostico individualizado feito por um profissional capacitado e habilitado.
                         Essas informacoes sao para fins de conhecimento e rastreamento do perfil nutricional da instituicao.
-                    </div>""", unsafe_allow_html=True)
+                    </div>
+                    """, unsafe_allow_html=True)
 
     conn.close()
 
-# ============================================================
-# HOME PAGE
-# ============================================================
 def home_page():
     user = st.session_state.user
+
     render_marina_logo(max_width="220px", margin_bottom="8px")
     st.markdown("<div style='text-align:center; font-size:2.2rem; letter-spacing:6px;'>🍎 🥕 🥦 🍓 🍌 🍇 🥥 🥑</div>", unsafe_allow_html=True)
     st.markdown("<h1 style='color:#4A148C; text-align:center; font-size:2.4rem; font-weight:900;'>🍎 NutriMais</h1>", unsafe_allow_html=True)
@@ -1086,29 +1182,31 @@ def home_page():
 
     col1, col2, col3 = st.columns([1, 3, 1])
     with col2:
-        role_labels = {"admin": "👑 Administrador", "group_admin": "🔧 Administrador de Grupo", "visitor": "👁 Visitante"}
+        role_labels = {"admin": "👑 Administrador", "group_admin": "🔧 Administrador de Grupo", "group_visitor": "👁 Visitante de Grupo", "visitor": "👁 Visitante"}
         st.markdown(f"<div style='text-align:center;'><span style='background:#7B1FA2;color:white;padding:6px 14px;border-radius:20px;font-size:0.85rem;font-weight:bold;'>{role_labels.get(user['role'], user['role'])} | {user['username']}</span></div>", unsafe_allow_html=True)
+
         st.markdown("")
         st.markdown("### Bem-vinda ao NutriMais!")
         st.markdown("Sistema completo de avaliacao e acompanhamento nutricional com curvas de crescimento da OMS e Ministerio da Saude.")
-        if user["role"] != "visitor":
+
+        if user["role"] not in ("visitor", "group_visitor"):
             st.info("📂 **Passo 1:** Crie um **Grupo** (ex: escola, clinica, UBS)")
             st.info("📋 **Passo 2:** Adicione **Turmas** dentro do grupo")
             st.info("👶 **Passo 3:** Cadastre as **Criancas** na turma")
             st.info("📊 **Passo 4:** Registre as **Medicoes** e acompanhe pelas curvas da OMS")
+
         if st.button("Acessar o Sistema →", use_container_width=True, type="primary"):
             st.session_state.screen = "app"
             st.rerun()
+
         c1, c2 = st.columns(2)
         with c2:
             if st.button("🚪 Sair"):
                 st.session_state.user = None
                 st.rerun()
+
     st.markdown("<div style='text-align:center; font-size:2.2rem; letter-spacing:6px; margin-top:18px;'>🌽 🍅 🍆 🥒 🥬 🧅 🍐 🍊</div>", unsafe_allow_html=True)
 
-# ============================================================
-# ENTRY POINT
-# ============================================================
 if "screen" not in st.session_state:
     st.session_state.screen = "home"
 
