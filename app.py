@@ -18,6 +18,15 @@ st.set_page_config(
 
 st.markdown("""
 <style>
+    /* 1. IMPORTAÇÃO DA FONTE NUNITO */
+    @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@300;400;600;700;800;900&display=swap');
+
+    /* 2. APLICAÇÃO GLOBAL (Não altera funcionalidades) */
+    html, body, [class*="st-"], .main, button, input, select, textarea {
+        font-family: 'Nunito', sans-serif !important;
+    }
+
+    /* SEU CÓDIGO ORIGINAL ABAIXO (SEM ALTERAÇÕES) */
     .main { background-color: #F3E5F5; }
     .stApp { background-color: #F3E5F5; }
     div[data-testid="stSidebar"] { background-color: #6A1B9A; }
