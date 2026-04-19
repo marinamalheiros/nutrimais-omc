@@ -532,39 +532,44 @@ def render_imla_turma_buttons(turmas):
     if not turmas:
         return
     
-    # CSS para transformar botões do Streamlit em pílulas coloridas
+    # Estilização para transformar os botões em "pílulas" coloridas
     st.markdown("""
         <style>
-        .stButton > button {
-            border-radius: 20px;
-            border: none;
-            padding: 4px 15px;
-            font-weight: bold;
-            transition: all 0.2s;
-            margin-right: 5px;
+        div.stButton > button {
+            border-radius: 20px !important;
+            border: none !important;
+            padding: 4px 16px !important;
+            font-weight: bold !important;
+            transition: all 0.2s ease;
+            height: auto !important;
+            min-height: 32px !important;
         }
-        .stButton > button:hover {
+        div.stButton > button:hover {
             transform: scale(1.05);
-            border: none;
+            opacity: 0.9;
         }
-        /* Remove o espaçamento padrão entre botões em colunas */
-        [data-testid="column"] {
+        /* Alinhamento dos botões lado a lado */
+        div[data-testid="column"] {
             width: fit-content !important;
             flex: unset !important;
             min-width: unset !important;
         }
+        div[data-testid="stHorizontalBlock"] {
+            gap: 10px;
+            justify-content: center;
+        }
         </style>
     """, unsafe_allow_html=True)
 
-    # Cria colunas para os botões ficarem lado a lado
-    cols = st.columns(len(turmas) + 1)
+    # Criamos colunas para os botões aparecerem na mesma linha
+    cols = st.columns(len(turmas))
     
     for i, turma in enumerate(turmas):
         nome = turma["nome"]
         cor = IMLA_TURMA_COLORS.get(nome, "#6741d9")
         texto_cor = "#333" if cor == "#ffc713" else "white"
         
-        # Injeção de CSS específico para a cor de cada botão
+        # Aplicamos a cor de fundo individual de cada botão via CSS
         st.markdown(f"""
             <style>
             div[data-testid="stHorizontalBlock"] > div:nth-child({i+1}) button {{
@@ -574,13 +579,76 @@ def render_imla_turma_buttons(turmas):
             </style>
         """, unsafe_allow_html=True)
         
-        # O botão agora gerencia o estado internamente
-        if cols[i].button(nome, key=f"btn_turma_{nome}_{i}"):
-            st.session_state.imla_turma = nome
-            st.session_state.goto_coletivo = True
-            # Força a navegação para a aba "Controle Coletivo" (índice 1 no seu st.tabs)
-            st.session_state.tab_index = 1 
+        # Se o botão for clicado, atualizamos o estado e forçamos o re-processamento
+        if cols[i].button(nome, key=f"btn_nav_{nome}_{i}"):
+            st.session_state["_imla_turma"] = nome
+            st.session_state["_imla_goto_coletivo"] = True
+            # Forçamos o rerun para que o main_app leia o novo estado e mude a aba
             st.rerun()
+
+def render_growth_chart(sexo, tipo, medicoes_data, titulo, eixo_x_campo, eixo_y_campo, label_x, label_y):
+    try:
+        import plotly.graph_objects as go
+    except ImportError:
+        st.warning("Plotly nao instalado. Execute: pip install plotly")
+        return
+    ref = get_ref(sexo, tipo)
+    if not ref:
+        st.warning(f"Referencia OMS nao disponivel para {titulo}")
+        return
+    pontos = []
+    for m in medicoes_data:
+        vx = m["altura"] if eixo_x_campo == "altura" else m["meses"]
+        vy = m["peso"] if eixo_y_campo == "peso" else (m["altura"] if eixo_y_campo == "altura" else m["imc"])
+        if vx and vy and vx > 0 and vy > 0:
+            pontos.append({"vx": vx, "vy": vy, "data": m.get("data", "")})
+    if not pontos:
+        return
+    vx_vals = [p["vx"] for p in pontos]
+    vx_min, vx_max = min(vx_vals), max(vx_vals)
+    margem = max((vx_max - vx_min) * 0.5, 10)
+    x_min = max(0, vx_min - margem)
+    x_max = vx_max + margem
+    eixo = ref.get("meses") if eixo_x_campo != "altura" else ref.get("altura")
+    if not eixo:
+        return
+    filtered_eixo = [x for x in eixo if x >= x_min and x <= x_max]
+    if not filtered_eixo:
+        return
+    z_keys = ["z-3","z-2","z-1","z0","z1","z2","z3"]
+    z_colors = {"z3":"#DC143C","z2":"#FF8C00","z1":"#4682B4","z0":"#2E8B57","z-1":"#4682B4","z-2":"#FF8C00","z-3":"#DC143C"}
+    z_labels = {"z3":"+3","z2":"+2","z1":"+1","z0":"Mediana","z-1":"-1","z-2":"-2","z-3":"-3"}
+    z_dash = {"z3":"dot","z2":"dash","z1":"dash","z0":"solid","z-1":"dash","z-2":"dash","z-3":"dot"}
+    fig = go.Figure()
+    for zk in z_keys:
+        z_arr = ref[zk]
+        y_vals = [z_arr[eixo.index(x)] if x in eixo else None for x in filtered_eixo]
+        fig.add_trace(go.Scatter(x=filtered_eixo, y=y_vals, mode="lines", name=z_labels[zk],
+            line=dict(color=z_colors[zk], width=2 if zk=="z0" else 1, dash=z_dash[zk])))
+    fig.add_trace(go.Scatter(
+        x=[p["vx"] for p in pontos], y=[p["vy"] for p in pontos],
+        mode="markers+lines", name="Medicoes",
+        marker=dict(size=10, color="#7B1FA2", symbol="circle"),
+        line=dict(color="#7B1FA2", width=2),
+        text=[f"Data: {format_date_br(p['data'])}" for p in pontos]))
+    fig.update_layout(
+        title=dict(text=titulo, font=dict(color="#1565C0" if sexo=="M" else "#AD1457", size=16)),
+        xaxis_title=label_x, yaxis_title=label_y, height=420,
+        template="plotly_white", legend=dict(font=dict(size=10)),
+        margin=dict(l=60, r=20, t=50, b=60))
+    st.plotly_chart(fig, use_container_width=True)
+    tipo_eixo = "altura" if eixo_x_campo == "altura" else "meses"
+    for i, p in enumerate(pontos):
+        limites = obter_limites(ref, p["vx"], tipo_eixo)
+        meses_val = p["vx"] if eixo_x_campo != "altura" else 0
+        status, cor = classificar_nutricional(p["vy"], limites, tipo, meses_val)
+        cor_txt = "#333" if cor == "#FFD700" else "white"
+        st.markdown(
+            f'<span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:{cor};margin-right:6px;"></span>'
+            f'<span style="font-size:0.85rem;color:#555;">Medicao {i+1} ({p["vx"]:.1f} {"cm" if eixo_x_campo=="altura" else "meses"}, {p["vy"]:.1f}):</span> '
+            f'<span style="background:{cor};color:{cor_txt};padding:3px 10px;border-radius:6px;font-weight:bold;font-size:0.82rem;">{status}</span>',
+            unsafe_allow_html=True)
+    return fig
 
 def render_growth_chart(sexo, tipo, medicoes_data, titulo, eixo_x_campo, eixo_y_campo, label_x, label_y):
     # O restante da sua função permanece igual...
@@ -683,11 +751,8 @@ def main_app():
             pagina_idx = 1
         else:
             pagina_idx = 0
-        pagina = st.radio("Navegacao", ["📋 Sistema", "📊 Controle Coletivo"],
-                          index=pagina_idx, label_visibility="collapsed", key="pagina_nav")
-        if pagina == "📋 Sistema":
-            st.session_state["_imla_goto_coletivo"] = False
-        st.divider()
+        
+        pagina = st.radio("Navegacao", ["📋 Sistema", "📊 Controle Coletivo"], index=pagina_idx)
 
         grupos = conn.execute("SELECT id, nome FROM grupos").fetchall()
 
