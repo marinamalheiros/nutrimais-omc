@@ -567,7 +567,7 @@ def render_imla_turma_buttons(turmas):
     for i, turma in enumerate(turmas):
         nome = turma["nome"]
         cor = IMLA_TURMA_COLORS.get(nome, "#6741d9")
-        texto_cor = "#333" if cor == "#ffc713" else "white"
+        texto_cor = "white"
         
         # Aplicamos a cor de fundo individual de cada botão via CSS
         st.markdown(f"""
