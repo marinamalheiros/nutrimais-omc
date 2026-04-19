@@ -944,7 +944,7 @@ def main_app():
             (c["id"],)).fetchall()
         c["medicoes"] = [dict(m) for m in meds]
 
-    # --- ABA: CONTROLE COLETIVO ---
+       # --- ABA: CONTROLE COLETIVO ---
     if pagina == "📊 Controle Coletivo":
         st.markdown(f"## 📋 Controle Coletivo — {turma_sel['nome']}")
         st.markdown(f"**Grupo:** {grupo_sel['nome']} | **Turma:** {turma_sel['nome']} | **Total:** {len(criancas)} crianças")
