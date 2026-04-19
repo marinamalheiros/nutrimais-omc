@@ -531,18 +531,59 @@ def render_imla_header():
 def render_imla_turma_buttons(turmas):
     if not turmas:
         return
-    buttons_html = []
-    for turma in turmas:
+    
+    # CSS para transformar botões do Streamlit em pílulas coloridas
+    st.markdown("""
+        <style>
+        .stButton > button {
+            border-radius: 20px;
+            border: none;
+            padding: 4px 15px;
+            font-weight: bold;
+            transition: all 0.2s;
+            margin-right: 5px;
+        }
+        .stButton > button:hover {
+            transform: scale(1.05);
+            border: none;
+        }
+        /* Remove o espaçamento padrão entre botões em colunas */
+        [data-testid="column"] {
+            width: fit-content !important;
+            flex: unset !important;
+            min-width: unset !important;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
+    # Cria colunas para os botões ficarem lado a lado
+    cols = st.columns(len(turmas) + 1)
+    
+    for i, turma in enumerate(turmas):
         nome = turma["nome"]
         cor = IMLA_TURMA_COLORS.get(nome, "#6741d9")
         texto_cor = "#333" if cor == "#ffc713" else "white"
-        buttons_html.append(
-            f'<a class="imla-turma-button" style="background:{cor};color:{texto_cor} !important;" '
-            f'href="?imla_turma={quote(nome)}&goto_coletivo=1" target="_self">{nome}</a>'
-        )
-    st.markdown(f'<div class="imla-turma-buttons">{"".join(buttons_html)}</div>', unsafe_allow_html=True)
+        
+        # Injeção de CSS específico para a cor de cada botão
+        st.markdown(f"""
+            <style>
+            div[data-testid="stHorizontalBlock"] > div:nth-child({i+1}) button {{
+                background-color: {cor} !important;
+                color: {texto_cor} !important;
+            }}
+            </style>
+        """, unsafe_allow_html=True)
+        
+        # O botão agora gerencia o estado internamente
+        if cols[i].button(nome, key=f"btn_turma_{nome}_{i}"):
+            st.session_state.imla_turma = nome
+            st.session_state.goto_coletivo = True
+            # Força a navegação para a aba "Controle Coletivo" (índice 1 no seu st.tabs)
+            st.session_state.tab_index = 1 
+            st.rerun()
 
 def render_growth_chart(sexo, tipo, medicoes_data, titulo, eixo_x_campo, eixo_y_campo, label_x, label_y):
+    # O restante da sua função permanece igual...
     try:
         import plotly.graph_objects as go
     except ImportError:
