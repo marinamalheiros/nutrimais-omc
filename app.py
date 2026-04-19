@@ -6,7 +6,7 @@ import math
 import os
 import json
 import base64
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 from datetime import datetime, date
 
 st.set_page_config(
@@ -448,10 +448,10 @@ def admin_panel():
                              new_cpf if new_cpf else None,
                              new_group if new_role in ("group_admin","group_visitor") and new_group else None))
                         conn.commit()
-                        st.success(f'Usuario "{new_username}" criado!')
+                        st.success(f'✅ Usuario "{new_username}" criado com sucesso!')
                         st.rerun()
                     except sqlite3.IntegrityError:
-                        st.error("Usuario ja existe!")
+                        st.error("❌ Usuario ja existe!")
                     finally:
                         conn.close()
                 else:
@@ -514,44 +514,46 @@ def render_imla_header():
         </div>
         </div>""", unsafe_allow_html=True)
 
-# AJUSTE 1 + 2: botões coloridos com nome da turma, sem seletor separado
-# Cada st.button recebe CSS inline via markdown para ficar com a cor da turma
+# ── BOTÕES IMLA: HTML puro com cores garantidas ──────────────
+# Usa components.html + postMessage para comunicar com Streamlit via query_params
 def render_imla_turma_buttons(turmas):
     if not turmas:
         return
-    n = len(turmas)
-    cols = st.columns(n)
-    for i, turma in enumerate(turmas):
+
+    # Verifica se chegou clique via query_params
+    try:
+        qp = st.query_params.get("imla_click")
+        if qp:
+            turma_clicada = unquote(qp if isinstance(qp, str) else qp[0])
+            st.query_params.clear()
+            st.session_state["_imla_turma"] = turma_clicada
+            st.session_state["_imla_goto_coletivo"] = True
+            st.rerun()
+    except Exception:
+        pass
+
+    # Monta HTML com botões 100% coloridos
+    btns_html = ""
+    for turma in turmas:
         nome = turma["nome"]
         cor = IMLA_TURMA_COLORS.get(nome, "#6741d9")
-        with cols[i]:
-            # Injeta CSS para colorir especificamente o botão desta coluna
-            st.markdown(f"""
-            <style>
-            div[data-testid="column"]:nth-child({i+1}) div[data-testid="stButton"] > button {{
-                background-color: {cor} !important;
-                color: white !important;
-                border-radius: 999px !important;
-                border: none !important;
-                font-weight: 800 !important;
-                font-size: 0.9rem !important;
-                padding: 10px 16px !important;
-                box-shadow: 0 2px 8px rgba(0,0,0,0.15) !important;
-                width: 100% !important;
-                transition: transform 0.15s ease, box-shadow 0.15s ease !important;
-            }}
-            div[data-testid="column"]:nth-child({i+1}) div[data-testid="stButton"] > button:hover {{
-                box-shadow: 0 4px 12px rgba(0,0,0,0.22) !important;
-                background-color: {cor} !important;
-                color: white !important;
-                filter: brightness(1.07);
-            }}
-            </style>
-            """, unsafe_allow_html=True)
-            if st.button(nome, key=f"imla_turma_{i}", use_container_width=True):
-                st.session_state["_imla_turma"] = nome
-                st.session_state["_imla_goto_coletivo"] = True
-                st.rerun()
+        nome_enc = quote(nome)
+        btns_html += f"""
+        <button onclick="window.parent.location.href = window.parent.location.pathname + '?imla_click={nome_enc}'"
+            style="background:{cor};color:white;border:none;border-radius:999px;
+                   font-weight:800;font-size:0.95rem;padding:12px 20px;margin:6px;
+                   cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.15);
+                   transition:filter 0.15s ease;">
+            {nome}
+        </button>
+        """
+
+    html_block = f"""
+    <div style="display:flex;flex-wrap:wrap;justify-content:center;gap:4px;padding:8px 0 16px 0;">
+        {btns_html}
+    </div>
+    """
+    components.html(html_block, height=90)
 
 def render_growth_chart(sexo, tipo, medicoes_data, titulo, eixo_x_campo, eixo_y_campo, label_x, label_y):
     try:
@@ -643,7 +645,6 @@ def main_app():
 
         grupos = conn.execute("SELECT id, nome FROM grupos").fetchall()
 
-        # Seletor de grupo primeiro (AJUSTE 5 da iteração anterior)
         st.markdown("##### 📂 Grupo")
         grupo_names = ["-- Selecione --"] + [g["nome"] for g in grupos]
         grupo_sel_name = st.selectbox("Grupo", grupo_names, label_visibility="collapsed", key="sel_grupo")
@@ -651,7 +652,6 @@ def main_app():
         if grupo_sel_name != "-- Selecione --":
             grupo_sel = next((dict(g) for g in grupos if g["nome"] == grupo_sel_name), None)
 
-        # Remover Grupo
         if can_write(user) and grupo_sel:
             if st.button("🗑 Remover este Grupo", use_container_width=True, key="btn_remover_grupo", type="primary"):
                 st.session_state["_confirmar_remover_grupo"] = grupo_sel["id"]
@@ -673,14 +673,13 @@ def main_app():
                         conn.execute("DELETE FROM grupos WHERE id=?", (gid,))
                         conn.commit()
                         st.session_state["_confirmar_remover_grupo"] = None
-                        st.success("Grupo removido!")
+                        st.success("✅ Grupo removido com sucesso!")
                         st.rerun()
                 with cc2:
                     if st.button("❌ Cancelar", key="btn_canc_rem_grupo", use_container_width=True):
                         st.session_state["_confirmar_remover_grupo"] = None
                         st.rerun()
 
-        # Cadastrar grupo depois do seletor
         if can_write(user):
             st.markdown("##### 📂 Cadastrar Grupo")
             novo_grupo = st.text_input("Nome do grupo", key="novo_grupo", label_visibility="collapsed", placeholder="Nome do grupo")
@@ -689,10 +688,10 @@ def main_app():
                     try:
                         conn.execute("INSERT INTO grupos (nome) VALUES (?)", (novo_grupo.strip(),))
                         conn.commit()
-                        st.success(f'Grupo "{novo_grupo.strip()}" criado!')
+                        st.success(f'✅ Grupo "{novo_grupo.strip()}" criado com sucesso!')
                         st.rerun()
                     except sqlite3.IntegrityError:
-                        st.error("Grupo ja existe!")
+                        st.error("❌ Grupo ja existe!")
 
         turma_sel = None
         criancas = []
@@ -734,7 +733,7 @@ def main_app():
         admin_panel()
         return
 
-    # Botões IMLA coloridos (pill = botão com nome da turma)
+    # Botões IMLA coloridos via HTML puro
     if is_imla_group(grupo_sel) and grupo_sel:
         render_imla_turma_buttons(turmas)
 
@@ -748,18 +747,14 @@ def main_app():
         conn.close()
         return
 
-    # AJUSTE: seletor de turma na tela central
-    # Para IMLA: NÃO mostra o seletor pois os botões já fazem essa função
-    # Para outros grupos: mostra o seletor normalmente
+    # Seletor de turma na tela central (IMLA usa botões, não seletor)
     if grupo_sel and turmas:
         if not is_imla_group(grupo_sel):
-            # Grupos normais: seletor de turma na tela central
             turma_names_central = ["-- Selecione a Turma --"] + [t["nome"] for t in turmas]
             turma_sel_central = st.selectbox("📋 Selecione a Turma", turma_names_central, key="sel_turma_central")
             if turma_sel_central != "-- Selecione a Turma --":
                 turma_sel = next((dict(t) for t in turmas if t["nome"] == turma_sel_central), None)
         else:
-            # IMLA: turma vem do botão clicado
             imla_turma = st.session_state.get("_imla_turma")
             if imla_turma:
                 turma_sel = next((dict(t) for t in turmas if t["nome"] == imla_turma), None)
@@ -783,8 +778,10 @@ def main_app():
                     if nova_turma and nova_turma.strip():
                         conn.execute("INSERT INTO turmas (nome, grupo_id) VALUES (?, ?)", (nova_turma.strip(), grupo_sel["id"]))
                         conn.commit()
-                        st.success(f'Turma "{nova_turma.strip()}" criada!')
+                        st.success(f'✅ Turma "{nova_turma.strip()}" criada com sucesso!')
                         st.rerun()
+                    else:
+                        st.error("❌ Digite o nome da turma.")
                 st.markdown("#### 🗑 Remover Turma")
                 turma_names_rem = ["-- Selecione --"] + [t["nome"] for t in turmas]
                 turma_rem_nome = st.selectbox("Turma para remover", turma_names_rem, key="sel_turma_remover")
@@ -798,7 +795,7 @@ def main_app():
                             conn.execute("DELETE FROM criancas WHERE turma_id=?", (turma_rem["id"],))
                             conn.execute("DELETE FROM turmas WHERE id=?", (turma_rem["id"],))
                             conn.commit()
-                            st.success(f'Turma "{turma_rem_nome}" removida!')
+                            st.success(f'✅ Turma "{turma_rem_nome}" removida com sucesso!')
                             st.rerun()
             with col_c:
                 st.markdown("#### ℹ️ Como usar")
@@ -932,8 +929,10 @@ def main_app():
                             (novo_nome.strip(), sexo_val, str(nova_nasc), grupo_sel["id"], turma_sel["id"],
                              nova_comunidade.strip() if nova_comunidade else None))
                         conn.commit()
-                        st.success(f'{novo_nome.strip()} cadastrado(a)!')
+                        st.success(f'✅ {novo_nome.strip()} cadastrado(a) com sucesso!')
                         st.rerun()
+                    else:
+                        st.error("❌ Digite o nome da crianca.")
             else:
                 st.markdown("""
                 <div style='text-align:center; padding:60px 20px; color:#7B1FA2;'>
@@ -957,6 +956,7 @@ def main_app():
                             conn2.execute("DELETE FROM criancas WHERE id = ?", (crianca_sel["id"],))
                             conn2.commit()
                             conn2.close()
+                            st.success("✅ Crianca removida com sucesso!")
                             st.rerun()
                     with btn_col1:
                         with st.expander("➕ Cadastrar Nova Crianca nesta Turma"):
@@ -974,8 +974,10 @@ def main_app():
                                         (novo_nome2.strip(), sexo_val2, str(nova_nasc2), grupo_sel["id"], turma_sel["id"],
                                          nova_comunidade2.strip() if nova_comunidade2 else None))
                                     conn.commit()
-                                    st.success(f'{novo_nome2.strip()} cadastrado(a)!')
+                                    st.success(f'✅ {novo_nome2.strip()} cadastrado(a) com sucesso!')
                                     st.rerun()
+                                else:
+                                    st.error("❌ Digite o nome da crianca.")
 
                 if write_enabled:
                     with st.expander("✏️ Editar Dados da Crianca"):
@@ -1001,7 +1003,7 @@ def main_app():
                                      crianca_sel["id"]))
                                 conn2.commit()
                                 conn2.close()
-                                st.success("Dados atualizados!")
+                                st.success("✅ Dados atualizados com sucesso!")
                                 st.rerun()
 
                 st.markdown(f"## 📋 Ficha: {crianca_sel['nome']}")
@@ -1070,7 +1072,7 @@ def main_app():
                                                   (crianca_sel["id"], med["data_medicao"], med["peso"], med["altura"]))
                         conn2.commit()
                         conn2.close()
-                        st.success("Medicoes salvas com sucesso!")
+                        st.success("✅ Medicoes salvas com sucesso!")
                         st.rerun()
 
                 valid_meds = []
