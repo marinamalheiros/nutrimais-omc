@@ -1063,42 +1063,43 @@ def main_app():
                     <div style='font-size:3rem; margin-bottom:16px;'>👶</div>
                     <h2 style='color:#4A148C;'>Nenhuma criança cadastrada</h2>
                 </div>""", unsafe_allow_html=True)
-            else:
-                crianca_names = [c["nome"] for c in criancas]
-                sel_crianca_nome = st.selectbox("👶 Selecione a crianca:", crianca_names)
-                crianca_sel = next((c for c in criancas if c["nome"] == sel_crianca_nome), None)
-    
-                if crianca_sel:
-                    write_enabled = can_write(user, grupo_sel["nome"])
-    
-                    if write_enabled:
-                        btn_col1, btn_col2 = st.columns([3, 1])
-                        with btn_col2:
-                            if st.button("🗑 Remover Criança", key="btn_remover_crianca"):
-                                conn2 = get_db()
-                                conn2.execute("DELETE FROM medicoes WHERE crianca_id = ?", (crianca_sel["id"],))
-                                conn2.execute("DELETE FROM criancas WHERE id = ?", (crianca_sel["id"],))
-                                conn2.commit()
-                                conn2.close()
-                                st.rerun()
-                        with btn_col1:
-                            with st.expander("➕ Cadastrar Nova Criança nesta Turma"):
-                                novo_nome2 = st.text_input("Nome completo", key="novo_nome_crianca2", placeholder="Nome completo")
-                                novo_sexo2 = st.selectbox("Sexo", ["Masculino","Feminino"], key="novo_sexo_crianca2")
-                                nova_nasc2 = st.date_input("Data de nascimento", value=date(2018,1,1), key="nova_nasc_crianca2")
-                                nova_comunidade2 = ""
-                                if is_imla_group(grupo_sel):
-                                    nova_comunidade2 = st.text_input("Comunidade", key="nova_comunidade_crianca2", placeholder="Comunidade")
-                                if st.button("Cadastrar", use_container_width=True, key="btn_criar_crianca2"):
-                                    if novo_nome2 and novo_nome2.strip():
-                                        sexo_val2 = "M" if novo_sexo2 == "Masculino" else "F"
-                                        conn.execute(
-                                            "INSERT INTO criancas (nome, sexo, data_nascimento, grupo_id, turma_id, comunidade) VALUES (?,?,?,?,?,?)",
-                                            (novo_nome2.strip(), sexo_val2, str(nova_nasc2), grupo_sel["id"], turma_sel["id"],
-                                             nova_comunidade2.strip() if nova_comunidade2 else None))
-                                        conn.commit()
-                                        set_success_message("Aluno cadastrado com sucesso!")
-                                        st.rerun()
+else:  # Este else corresponde ao 'if not criancas'
+            crianca_names = [c["nome"] for c in criancas]
+            sel_crianca_nome = st.selectbox("👶 Selecione a crianca:", crianca_names)
+            crianca_sel = next((c for c in criancas if c["nome"] == sel_crianca_nome), None)
+
+            if crianca_sel:
+                write_enabled = can_write(user, grupo_sel["nome"])
+
+                if write_enabled:
+                    btn_col1, btn_col2 = st.columns([3, 1])
+                    with btn_col2:
+                        if st.button("🗑 Remover Criança", key="btn_remover_crianca"):
+                            conn2 = get_db()
+                            conn2.execute("DELETE FROM medicoes WHERE crianca_id = ?", (crianca_sel["id"],))
+                            conn2.execute("DELETE FROM criancas WHERE id = ?", (crianca_sel["id"],))
+                            conn2.commit()
+                            conn2.close()
+                            st.rerun()
+                    with btn_col1:
+                        with st.expander("➕ Cadastrar Nova Criança nesta Turma"):
+                            novo_nome2 = st.text_input("Nome completo", key="novo_nome_crianca2", placeholder="Nome completo")
+                            novo_sexo2 = st.selectbox("Sexo", ["Masculino","Feminino"], key="novo_sexo_crianca2")
+                            nova_nasc2 = st.date_input("Data de nascimento", value=date(2018,1,1), key="nova_nasc_crianca2")
+                            nova_comunidade2 = ""
+                            if is_imla_group(grupo_sel):
+                                nova_comunidade2 = st.text_input("Comunidade", key="nova_comunidade_crianca2", placeholder="Comunidade")
+                            
+                            if st.button("Cadastrar", use_container_width=True, key="btn_criar_crianca2"):
+                                if novo_nome2 and novo_nome2.strip():
+                                    sexo_val2 = "M" if novo_sexo2 == "Masculino" else "F"
+                                    conn.execute(
+                                        "INSERT INTO criancas (nome, sexo, data_nascimento, grupo_id, turma_id, comunidade) VALUES (?,?,?,?,?,?)",
+                                        (novo_nome2.strip(), sexo_val2, str(nova_nasc2), grupo_sel["id"], turma_sel["id"],
+                                         nova_comunidade2.strip() if nova_comunidade2 else None))
+                                    conn.commit()
+                                    set_success_message("Aluno cadastrado com sucesso!")
+                                    st.rerun()
 
                 if write_enabled:
                     with st.expander("✏️ Editar Dados da Criança"):
