@@ -51,20 +51,7 @@ st.markdown("""
     .imla-title { font-size: 2rem; font-weight: 900; letter-spacing: 1px; line-height: 1.2; margin: 0; }
     .imla-title-green { color: #a8cf45; }
     .imla-title-blue { color: #5cc6d0; }
-    .imla-turma-buttons { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin: 0 0 20px 0; }
-    .imla-turma-button { color: white !important; text-decoration: none !important; padding: 10px 16px;
-        border-radius: 999px; font-weight: 800; font-size: 0.9rem; box-shadow: 0 2px 8px rgba(0,0,0,0.12);
-        display: inline-block; transition: transform 0.15s ease, box-shadow 0.15s ease; }
-    .imla-turma-button:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.18); }
     .marina-logo img { mix-blend-mode: multiply; }
-    /* AJUSTE 1: esconde label dos st.button das turmas IMLA para mostrar só a pill colorida */
-    .imla-btn-wrapper button {
-        background: transparent !important;
-        border: none !important;
-        padding: 0 !important;
-        box-shadow: none !important;
-        width: 100%;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -120,7 +107,6 @@ def init_db():
         comunidade TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )""")
-    # AJUSTE 3: adiciona coluna comunidade se não existir (migração suave)
     try:
         conn.execute("ALTER TABLE criancas ADD COLUMN comunidade TEXT")
         conn.commit()
@@ -528,7 +514,8 @@ def render_imla_header():
         </div>
         </div>""", unsafe_allow_html=True)
 
-# AJUSTE 1: botão é a própria pill colorida com o nome da turma (um único st.button estilizado)
+# AJUSTE 1 + 2: botões coloridos com nome da turma, sem seletor separado
+# Cada st.button recebe CSS inline via markdown para ficar com a cor da turma
 def render_imla_turma_buttons(turmas):
     if not turmas:
         return
@@ -538,12 +525,10 @@ def render_imla_turma_buttons(turmas):
         nome = turma["nome"]
         cor = IMLA_TURMA_COLORS.get(nome, "#6741d9")
         with cols[i]:
-            # Injetamos CSS inline para transformar o st.button na pill colorida
-            btn_key = f"imla_turma_{i}"
+            # Injeta CSS para colorir especificamente o botão desta coluna
             st.markdown(f"""
             <style>
-            div[data-testid="stButton"] > button[kind="secondary"]#btn_{btn_key},
-            div[data-testid="column"]:nth-child({i+1}) div[data-testid="stButton"] button {{
+            div[data-testid="column"]:nth-child({i+1}) div[data-testid="stButton"] > button {{
                 background-color: {cor} !important;
                 color: white !important;
                 border-radius: 999px !important;
@@ -551,18 +536,19 @@ def render_imla_turma_buttons(turmas):
                 font-weight: 800 !important;
                 font-size: 0.9rem !important;
                 padding: 10px 16px !important;
-                box-shadow: 0 2px 8px rgba(0,0,0,0.12) !important;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.15) !important;
                 width: 100% !important;
+                transition: transform 0.15s ease, box-shadow 0.15s ease !important;
             }}
-            div[data-testid="column"]:nth-child({i+1}) div[data-testid="stButton"] button:hover {{
-                transform: translateY(-1px);
-                box-shadow: 0 4px 12px rgba(0,0,0,0.18) !important;
+            div[data-testid="column"]:nth-child({i+1}) div[data-testid="stButton"] > button:hover {{
+                box-shadow: 0 4px 12px rgba(0,0,0,0.22) !important;
                 background-color: {cor} !important;
                 color: white !important;
+                filter: brightness(1.07);
             }}
             </style>
             """, unsafe_allow_html=True)
-            if st.button(nome, key=btn_key, use_container_width=True):
+            if st.button(nome, key=f"imla_turma_{i}", use_container_width=True):
                 st.session_state["_imla_turma"] = nome
                 st.session_state["_imla_goto_coletivo"] = True
                 st.rerun()
@@ -657,7 +643,7 @@ def main_app():
 
         grupos = conn.execute("SELECT id, nome FROM grupos").fetchall()
 
-        # AJUSTE 5: seletor de grupo PRIMEIRO, depois cadastro
+        # Seletor de grupo primeiro (AJUSTE 5 da iteração anterior)
         st.markdown("##### 📂 Grupo")
         grupo_names = ["-- Selecione --"] + [g["nome"] for g in grupos]
         grupo_sel_name = st.selectbox("Grupo", grupo_names, label_visibility="collapsed", key="sel_grupo")
@@ -665,7 +651,7 @@ def main_app():
         if grupo_sel_name != "-- Selecione --":
             grupo_sel = next((dict(g) for g in grupos if g["nome"] == grupo_sel_name), None)
 
-        # AJUSTE 4: Remover Grupo
+        # Remover Grupo
         if can_write(user) and grupo_sel:
             if st.button("🗑 Remover este Grupo", use_container_width=True, key="btn_remover_grupo", type="primary"):
                 st.session_state["_confirmar_remover_grupo"] = grupo_sel["id"]
@@ -694,7 +680,7 @@ def main_app():
                         st.session_state["_confirmar_remover_grupo"] = None
                         st.rerun()
 
-        # AJUSTE 5: cadastrar grupo depois do seletor
+        # Cadastrar grupo depois do seletor
         if can_write(user):
             st.markdown("##### 📂 Cadastrar Grupo")
             novo_grupo = st.text_input("Nome do grupo", key="novo_grupo", label_visibility="collapsed", placeholder="Nome do grupo")
@@ -748,7 +734,7 @@ def main_app():
         admin_panel()
         return
 
-    # Botões IMLA (AJUSTE 1: pill colorida = botão)
+    # Botões IMLA coloridos (pill = botão com nome da turma)
     if is_imla_group(grupo_sel) and grupo_sel:
         render_imla_turma_buttons(turmas)
 
@@ -762,18 +748,21 @@ def main_app():
         conn.close()
         return
 
-    # AJUSTE 6: seletor de turma na tela central
+    # AJUSTE: seletor de turma na tela central
+    # Para IMLA: NÃO mostra o seletor pois os botões já fazem essa função
+    # Para outros grupos: mostra o seletor normalmente
     if grupo_sel and turmas:
-        imla_turma = st.session_state.get("_imla_turma")
-        turma_names_central = ["-- Selecione a Turma --"] + [t["nome"] for t in turmas]
-        if is_imla_group(grupo_sel) and imla_turma and imla_turma in turma_names_central:
-            turma_central_idx = turma_names_central.index(imla_turma)
+        if not is_imla_group(grupo_sel):
+            # Grupos normais: seletor de turma na tela central
+            turma_names_central = ["-- Selecione a Turma --"] + [t["nome"] for t in turmas]
+            turma_sel_central = st.selectbox("📋 Selecione a Turma", turma_names_central, key="sel_turma_central")
+            if turma_sel_central != "-- Selecione a Turma --":
+                turma_sel = next((dict(t) for t in turmas if t["nome"] == turma_sel_central), None)
         else:
-            turma_central_idx = 0
-        turma_sel_central = st.selectbox("📋 Selecione a Turma", turma_names_central,
-                                          index=turma_central_idx, key="sel_turma_central")
-        if turma_sel_central != "-- Selecione a Turma --":
-            turma_sel = next((dict(t) for t in turmas if t["nome"] == turma_sel_central), None)
+            # IMLA: turma vem do botão clicado
+            imla_turma = st.session_state.get("_imla_turma")
+            if imla_turma:
+                turma_sel = next((dict(t) for t in turmas if t["nome"] == imla_turma), None)
     elif grupo_sel and not turmas:
         turma_sel = None
 
@@ -784,7 +773,6 @@ def main_app():
         criancas = [dict(c) for c in criancas_raw]
 
     if not turma_sel:
-        # Formulários de turma na tela central quando turma não selecionada
         if can_write(user, grupo_sel["nome"] if grupo_sel else None):
             st.markdown("---")
             col_t, col_c = st.columns(2)
@@ -814,14 +802,25 @@ def main_app():
                             st.rerun()
             with col_c:
                 st.markdown("#### ℹ️ Como usar")
-                st.info("Selecione uma turma acima para ver os alunos e registrar medicoes.")
+                if is_imla_group(grupo_sel):
+                    st.info("Clique no botão da turma acima para ver os dados coletivos.")
+                else:
+                    st.info("Selecione uma turma acima para ver os alunos e registrar medicoes.")
         else:
-            st.markdown(f"""
-            <div style='text-align:center; padding:40px 20px; color:#7B1FA2;'>
-                <div style='font-size:3rem; margin-bottom:16px;'>📋</div>
-                <h2 style='color:#4A148C;'>Selecione uma Turma</h2>
-                <p>Use o seletor acima para escolher uma turma em <strong>{grupo_sel['nome']}</strong>.</p>
-            </div>""", unsafe_allow_html=True)
+            if not is_imla_group(grupo_sel):
+                st.markdown(f"""
+                <div style='text-align:center; padding:40px 20px; color:#7B1FA2;'>
+                    <div style='font-size:3rem; margin-bottom:16px;'>📋</div>
+                    <h2 style='color:#4A148C;'>Selecione uma Turma</h2>
+                    <p>Use o seletor acima para escolher uma turma em <strong>{grupo_sel['nome']}</strong>.</p>
+                </div>""", unsafe_allow_html=True)
+            else:
+                st.markdown("""
+                <div style='text-align:center; padding:40px 20px; color:#7B1FA2;'>
+                    <div style='font-size:3rem; margin-bottom:16px;'>📋</div>
+                    <h2 style='color:#4A148C;'>Selecione uma Turma</h2>
+                    <p>Clique em um dos botões de turma acima para ver os dados.</p>
+                </div>""", unsafe_allow_html=True)
         conn.close()
         return
 
@@ -834,7 +833,6 @@ def main_app():
     if pagina == "📊 Controle Coletivo":
         st.markdown(f"## 📋 Controle Coletivo — {turma_sel['nome']}")
         st.markdown(f"**Grupo:** {grupo_sel['nome']} | **Turma:** {turma_sel['nome']} | **Total:** {len(criancas)} criancas")
-
         legend_items = [
             ("#2E8B57","Eutrofia / Adequado","white"),("#FFD700","Risco de Sobrepeso","#333"),
             ("#FF8C00","Sobrepeso","white"),("#FF0000","Obesidade","white"),
@@ -845,7 +843,6 @@ def main_app():
         st.markdown(legend_html, unsafe_allow_html=True)
 
         if criancas:
-            # AJUSTE 3: coluna Comunidade no relatório coletivo do IMLA
             is_imla = is_imla_group(grupo_sel)
             comunidade_header = '<th style="padding:10px 8px;text-align:center;">Comunidade</th>' if is_imla else ""
             table_html = f"""
@@ -862,8 +859,7 @@ def main_app():
                 <th style="padding:10px 8px;text-align:center;">Altura (cm)</th>
                 <th style="padding:10px 8px;text-align:center;">IMC</th>
                 <th style="padding:10px 8px;text-align:center;">Diagnostico Nutricional</th>
-            </tr></thead><tbody>
-            """
+            </tr></thead><tbody>"""
             for i, c in enumerate(criancas):
                 bg = "#FAF0FF" if i % 2 == 0 else "white"
                 meds = c["medicoes"]
@@ -943,7 +939,6 @@ def main_app():
                 <div style='text-align:center; padding:60px 20px; color:#7B1FA2;'>
                     <div style='font-size:3rem; margin-bottom:16px;'>👶</div>
                     <h2 style='color:#4A148C;'>Nenhuma crianca cadastrada</h2>
-                    <p>Use o menu lateral para cadastrar criancas nesta turma.</p>
                 </div>""", unsafe_allow_html=True)
         else:
             crianca_names = [c["nome"] for c in criancas]
@@ -982,7 +977,6 @@ def main_app():
                                     st.success(f'{novo_nome2.strip()} cadastrado(a)!')
                                     st.rerun()
 
-                # AJUSTE 2: editar dados da criança
                 if write_enabled:
                     with st.expander("✏️ Editar Dados da Crianca"):
                         with st.form("form_editar_crianca"):
@@ -1014,7 +1008,6 @@ def main_app():
                 sexo_label = "Masculino" if crianca_sel["sexo"] == "M" else "Feminino"
                 ficha_info = (f"**Sexo:** {sexo_label} | **Data de Nascimento:** {format_date_br(crianca_sel['data_nascimento'])} | "
                               f"**Grupo:** {grupo_sel['nome']} | **Turma:** {turma_sel['nome']}")
-                # AJUSTE 3: mostrar comunidade na ficha se IMLA
                 if is_imla_group(grupo_sel) and crianca_sel.get("comunidade"):
                     ficha_info += f" | **Comunidade:** {crianca_sel['comunidade']}"
                 st.markdown(ficha_info)
