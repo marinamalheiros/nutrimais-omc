@@ -627,6 +627,7 @@ def main_app():
         if imla_turma_param:
             st.session_state["_imla_turma"] = imla_turma_param
             st.session_state["_imla_goto_coletivo"] = True
+            st.session_state["pagina_nav"] = "📊 Controle Coletivo"
             try:
                 st.query_params.clear()
             except Exception:
@@ -637,7 +638,7 @@ def main_app():
         else:
             pagina_idx = 0
         pagina = st.radio("Navegacao", ["📋 Sistema", "📊 Controle Coletivo"],
-                          index=pagina_idx, label_visibility="collapsed")
+                          index=pagina_idx, label_visibility="collapsed", key="pagina_nav")
         if pagina == "📋 Sistema":
             st.session_state["_imla_goto_coletivo"] = False
         st.divider()
