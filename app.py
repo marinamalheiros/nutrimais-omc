@@ -957,7 +957,7 @@ def main_app():
         st.markdown(legend_html, unsafe_allow_html=True)
 
         # ... (dentro do seu if criancas:)
-            is_imla = is_imla_group(grupo_sel)
+        is_imla = is_imla_group(grupo_sel)
             comunidade_header = '<th style="padding:10px 8px;text-align:center;">Comunidade</th>' if is_imla else ""
             
             # Adicionamos a importação e o estilo da fonte logo no início da string
