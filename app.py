@@ -552,33 +552,14 @@ def render_imla_turma_buttons(turmas):
         return
     
     # Estilização para transformar os botões em "pílulas" coloridas
-    st.markdown("""
-        <style>
-        div.stButton > button {
-            border-radius: 20px !important;
-            border: none !important;
-            padding: 4px 16px !important;
-            font-weight: bold !important;
-            transition: all 0.2s ease;
-            height: auto !important;
-            min-height: 32px !important;
-        }
-        div.stButton > button:hover {
-            transform: scale(1.05);
-            opacity: 0.9;
-        }
-        /* Alinhamento dos botões lado a lado */
-        div[data-testid="column"] {
-            width: fit-content !important;
-            flex: unset !important;
-            min-width: unset !important;
-        }
-        div[data-testid="stHorizontalBlock"] {
-            gap: 10px;
-            justify-content: center;
-        }
-        </style>
-    """, unsafe_allow_html=True)
+    st.markdown(
+            f'<div style="display:flex; align-items:center; margin-bottom:8px;">'
+            f'<span style="display:inline-block; width:12px; height:12px; border-radius:50%; background:{cor}; margin-right:6px;"></span>'
+            f'<span style="font-size:0.85rem; color:#555;">Medicao {i+1} ({p["vx"]:.1f} {"cm" if eixo_x_campo=="altura" else "meses"}, {p["vy"]:.1f}):</span> '
+            f'<span style="background:{cor}; color:{cor_txt}; padding:3px 10px; border-radius:20px; font-weight:bold; font-size:0.82rem; margin-left:5px;">{status}</span>'
+            f'</div>', 
+            unsafe_allow_html=True
+        )
 
     # Criamos colunas para os botões aparecerem na mesma linha
     cols = st.columns(len(turmas))
