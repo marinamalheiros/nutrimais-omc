@@ -1031,14 +1031,14 @@ def main_app():
     else:
         if not criancas:
             if can_write(user, grupo_sel["nome"]):
-                st.markdown("#### ➕ Cadastrar Crianca nesta Turma")
+                st.markdown("#### ➕ Cadastrar Criança nesta Turma")
                 novo_nome = st.text_input("Nome completo", key="novo_nome_crianca", placeholder="Nome completo")
                 novo_sexo = st.selectbox("Sexo", ["Masculino", "Feminino"], key="novo_sexo_crianca")
                 nova_nasc = st.date_input("Data de nascimento", value=date(2018, 1, 1), key="nova_nasc_crianca")
                 nova_comunidade = ""
                 if is_imla_group(grupo_sel):
                     nova_comunidade = st.text_input("Comunidade", key="nova_comunidade_crianca", placeholder="Comunidade")
-                if st.button("Cadastrar Crianca", use_container_width=True, key="btn_criar_crianca"):
+                if st.button("Cadastrar Criança", use_container_width=True, key="btn_criar_crianca"):
                     if novo_nome and novo_nome.strip():
                         sexo_val = "M" if novo_sexo == "Masculino" else "F"
                         conn.execute(
@@ -1052,7 +1052,7 @@ def main_app():
                 st.markdown("""
                 <div style='text-align:center; padding:60px 20px; color:#7B1FA2;'>
                     <div style='font-size:3rem; margin-bottom:16px;'>👶</div>
-                    <h2 style='color:#4A148C;'>Nenhuma crianca cadastrada</h2>
+                    <h2 style='color:#4A148C;'>Nenhuma criança cadastrada</h2>
                 </div>""", unsafe_allow_html=True)
         else:
             crianca_names = [c["nome"] for c in criancas]
@@ -1065,7 +1065,7 @@ def main_app():
                 if write_enabled:
                     btn_col1, btn_col2 = st.columns([3, 1])
                     with btn_col2:
-                        if st.button("🗑 Remover Crianca", key="btn_remover_crianca"):
+                        if st.button("🗑 Remover Criança", key="btn_remover_crianca"):
                             conn2 = get_db()
                             conn2.execute("DELETE FROM medicoes WHERE crianca_id = ?", (crianca_sel["id"],))
                             conn2.execute("DELETE FROM criancas WHERE id = ?", (crianca_sel["id"],))
@@ -1073,7 +1073,7 @@ def main_app():
                             conn2.close()
                             st.rerun()
                     with btn_col1:
-                        with st.expander("➕ Cadastrar Nova Crianca nesta Turma"):
+                        with st.expander("➕ Cadastrar Nova Criança nesta Turma"):
                             novo_nome2 = st.text_input("Nome completo", key="novo_nome_crianca2", placeholder="Nome completo")
                             novo_sexo2 = st.selectbox("Sexo", ["Masculino","Feminino"], key="novo_sexo_crianca2")
                             nova_nasc2 = st.date_input("Data de nascimento", value=date(2018,1,1), key="nova_nasc_crianca2")
@@ -1092,7 +1092,7 @@ def main_app():
                                     st.rerun()
 
                 if write_enabled:
-                    with st.expander("✏️ Editar Dados da Crianca"):
+                    with st.expander("✏️ Editar Dados da Criança"):
                         with st.form("form_editar_crianca"):
                             edit_nome = st.text_input("Nome completo", value=crianca_sel["nome"])
                             edit_sexo = st.selectbox("Sexo", ["Masculino","Feminino"],
@@ -1105,7 +1105,7 @@ def main_app():
                             edit_comunidade = None
                             if is_imla_group(grupo_sel):
                                 edit_comunidade = st.text_input("Comunidade", value=crianca_sel.get("comunidade") or "")
-                            if st.form_submit_button("💾 Salvar Alteracoes", use_container_width=True):
+                            if st.form_submit_button("💾 Salvar Alterações", use_container_width=True):
                                 sexo_edit = "M" if edit_sexo == "Masculino" else "F"
                                 conn2 = get_db()
                                 conn2.execute(
@@ -1126,7 +1126,7 @@ def main_app():
                     ficha_info += f" | **Comunidade:** {crianca_sel['comunidade']}"
                 st.markdown(ficha_info)
 
-                st.markdown("### 📅 Medicoes")
+                st.markdown("### 📅 Medições")
                 meds = crianca_sel["medicoes"]
                 num_slots = max(4, len(meds))
                 med_cols = st.columns(min(num_slots, 4))
@@ -1172,7 +1172,7 @@ def main_app():
                                 st.caption(f"Escore-Z: {'+' if z_val >= 0 else ''}{z_val:.2f} DP | Percentil: {formatar_percentil(z_val)}")
 
                 if write_enabled:
-                    if st.button("💾 Salvar Medicoes", use_container_width=True, type="primary"):
+                    if st.button("💾 Salvar Medições", use_container_width=True, type="primary"):
                         conn2 = get_db()
                         for med in updated_meds:
                             if med["peso"] > 0 and med["altura"] > 0 and med["data_medicao"]:
@@ -1184,7 +1184,7 @@ def main_app():
                                                   (crianca_sel["id"], med["data_medicao"], med["peso"], med["altura"]))
                         conn2.commit()
                         conn2.close()
-                        st.success("Medicoes salvas com sucesso!")
+                        st.success("Medições salvas com sucesso!")
                         st.rerun()
 
                 valid_meds = []
@@ -1229,11 +1229,11 @@ def main_app():
                                     break
                     st.markdown("""
                     <div class="disclaimer">
-                        <strong>⚠️ Importante:</strong> As classificacoes feitas pelo aplicativo utilizam somente dados antropometricos
-                        (Peso, Estatura e IMC), nao levando em consideracao outros parametros que sao necessarios para um diagnostico
-                        nutricional completo, como exames bioquimicos, avaliacao dos habitos alimentares e exames clinicos. Por isso,
-                        estes resultados nao substituem o diagnostico individualizado feito por um profissional capacitado e habilitado.
-                        Essas informacoes sao para fins de conhecimento e rastreamento do perfil nutricional da instituicao.
+                        <strong>⚠️ Importante:</strong> As classificações feitas pelo aplicativo utilizam somente dados antropométricos
+                        (Peso, Estatura e IMC), não levando em consideração outros parâmetros que são necessários para um diagnóstico
+                        nutricional completo, como exames bioquímicos, avaliação dos hábitos alimentares e exames clínicos. Por isso,
+                        estes resultados não substituem o diagnóstico individualizado feito por um profissional capacitado e habilitado.
+                        Essas informações são para fins de conhecimento e rastreamento do perfil nutricional da instituição.
                     </div>""", unsafe_allow_html=True)
 
     conn.close()
