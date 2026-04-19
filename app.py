@@ -467,67 +467,77 @@ def admin_panel():
                         conn.execute(
                             "INSERT INTO users (username, password_hash, role, cpf, group_access) VALUES (?, ?, ?, ?, ?)",
                             (new_username, hash_password(new_password), new_role,
-                             new_cpf if new_cpf else None,
-                             new_group if new_role in ("group_admin","group_visitor") and new_group else None))
-                        conn.commit()
-                        st.success(f'Usuario "{new_username}" criado!')
-                        st.rerun()
-                    except sqlite3.IntegrityError:
-                        st.error("Usuario ja existe!")
-                    finally:
-                        conn.close()
-                else:
-                    st.error("Usuario e senha sao obrigatorios")
-    st.markdown("### 👥 Usuarios Cadastrados")
-    for u in users:
-        role_map = {"admin":"👑 Administrador Geral","group_admin":"🔧 Admin de Grupo","group_visitor":"👁 Visitante de Grupo","visitor":"👁 Visitante Geral"}
-        col1, col2, col3 = st.columns([3, 2, 1])
-        with col1:
-            st.markdown(f"**{u['username']}**")
-            info_parts = []
-            if u["cpf"]: info_parts.append(f"CPF: {u['cpf']}")
-            if u["group_access"]: info_parts.append(f"Grupo: {u['group_access']}")
-            if info_parts: st.caption(" | ".join(info_parts))
-        with col2:
-            st.markdown(f"`{role_map.get(u['role'], u['role'])}`")
-        with col3:
-            if u["username"] != "admin":
-                if st.button("🗑 Remover", key=f"del_user_{u['id']}"):
-                    conn = get_db()
-                    conn.execute("DELETE FROM users WHERE id = ?", (u["id"],))
-                    conn.commit()
-                    conn.close()
-                    st.rerun()
-        st.divider()
-    st.info("""
-    **📖 Niveis de acesso:**
-    - **Visitante Geral:** Visualiza todos os grupos, sem alteracoes.
-    - **Visitante de Grupo:** Visualiza apenas o grupo vinculado, sem alteracoes.
-    - **Admin de Grupo:** Administra um grupo especifico.
-    - **Administrador Geral:** Acesso total ao sistema.
-    """)
+def render_growth_chart(sexo, tipo, medicoes_data, titulo, eixo_x_campo, eixo_y_campo, label_x, label_y):
+    try:
+        import plotly.graph_objects as go
+    except ImportError:
+        st.warning("Plotly nao instalado. Execute: pip install plotly")
+        return
+    
+    ref = get_ref(sexo, tipo)
+    if not ref:
+        st.warning(f"Referencia OMS nao disponivel para {titulo}")
+        return
 
-def is_imla_group(grupo):
-    return bool(grupo and grupo.get("nome") == IMLA_GROUP_NAME)
+    pontos = []
+    for m in medicoes_data:
+        vx = m.get("altura") if eixo_x_campo == "altura" else m.get("meses")
+        vy = m.get("peso") if eixo_y_campo == "peso" else (m.get("altura") if eixo_y_campo == "altura" else m.get("imc"))
+        if vx is not None and vy is not None and vx > 0 and vy > 0:
+            pontos.append({"vx": vx, "vy": vy, "data": m.get("data", "")})
+    
+    if not pontos:
+        st.info("Sem dados suficientes para gerar o gráfico.")
+        return
 
-def get_imla_logo_path():
-    for logo_path in IMLA_LOGO_PATHS:
-        if os.path.exists(logo_path):
-            return logo_path
-    return None
+    # --- Configuração do Gráfico ---
+    vx_vals = [p["vx"] for p in pontos]
+    vx_min, vx_max = min(vx_vals), max(vx_vals)
+    margem = max((vx_max - vx_min) * 0.5, 10)
+    x_min = max(0, vx_min - margem)
+    x_max = vx_max + margem
+    
+    eixo = ref.get("meses") if eixo_x_campo != "altura" else ref.get("altura")
+    filtered_eixo = [x for x in eixo if x >= x_min and x <= x_max]
+    
+    fig = go.Figure()
+    z_keys = ["z-3","z-2","z-1","z0","z1","z2","z3"]
+    z_colors = {"z3":"#DC143C","z2":"#FF8C00","z1":"#4682B4","z0":"#2E8B57","z-1":"#4682B4","z-2":"#FF8C00","z-3":"#DC143C"}
+    
+    for zk in z_keys:
+        z_arr = ref[zk]
+        y_vals = [z_arr[eixo.index(x)] if x in eixo else None for x in filtered_eixo]
+        fig.add_trace(go.Scatter(x=filtered_eixo, y=y_vals, mode="lines", name=zk,
+                                 line=dict(color=z_colors[zk], width=1, dash="dash" if "0" not in zk else "solid")))
 
-def render_imla_header():
-    logo_path = get_imla_logo_path()
-    if logo_path:
-        ext = os.path.splitext(logo_path)[1].lower().replace(".", "")
-        mime_ext = "jpeg" if ext in ["jpg", "jpeg"] else "png"
-        with open(logo_path, "rb") as logo_file:
-            logo_b64 = base64.b64encode(logo_file.read()).decode()
-        logo_html = f'<img src="data:image/{mime_ext};base64,{logo_b64}" style="max-width:90px;max-height:58px;display:block;">'
-    else:
-        logo_html = ""
-    st.markdown(f"""
-        <div class="imla-header">
+    fig.add_trace(go.Scatter(x=[p["vx"] for p in pontos], y=[p["vy"] for p in pontos],
+                             mode="markers+lines", name="Medições",
+                             marker=dict(size=10, color="#7B1FA2")))
+
+    fig.update_layout(title=titulo, xaxis_title=label_x, yaxis_title=label_y, height=450, margin=dict(b=0))
+    
+    # Renderiza o gráfico
+    st.plotly_chart(fig, use_container_width=True)
+
+    # --- AJUSTE DA SOBREPOSIÇÃO ---
+    # Adicionamos um container de feedback para garantir que o texto fique ABAIXO do gráfico
+    with st.container():
+        st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
+        st.subheader("Análise das Medições")
+        
+        tipo_eixo = "altura" if eixo_x_campo == "altura" else "meses"
+        
+        for i, p in enumerate(pontos):
+            limites = obter_limites(ref, p["vx"], tipo_eixo)
+            meses_val = p["vx"] if eixo_x_campo != "altura" else 0
+            status, cor = classificar_nutricional(p["vy"], limites, tipo, meses_val)
+            
+            # Usando colunas para organizar melhor e evitar que o texto suba no gráfico
+            col_icon, col_text = st.columns([0.05, 0.95])
+            with col_icon:
+                st.markdown(f"<div style='width:15px; height:15px; background:{cor}; border-radius:50%; margin-top:5px;'></div>", unsafe_allow_html=True)
+            with col_text:
+                st.write(f"**Medição {i+1}:** {status} ({p['vy']:.1f} em {format_date_br(p['data'])})")
         <div class="imla-logo-space">{logo_html}</div>
         <div class="imla-title">
             <span class="imla-title-green">INSTITUTO</span>
