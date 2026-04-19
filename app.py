@@ -945,125 +945,125 @@ def main_app():
         c["medicoes"] = [dict(m) for m in meds]
 
     # --- ABA: CONTROLE COLETIVO ---
-        if pagina == "📊 Controle Coletivo":
-            st.markdown(f"## 📋 Controle Coletivo — {turma_sel['nome']}")
-            st.markdown(f"**Grupo:** {grupo_sel['nome']} | **Turma:** {turma_sel['nome']} | **Total:** {len(criancas)} crianças")
+    if pagina == "📊 Controle Coletivo":
+        st.markdown(f"## 📋 Controle Coletivo — {turma_sel['nome']}")
+        st.markdown(f"**Grupo:** {grupo_sel['nome']} | **Turma:** {turma_sel['nome']} | **Total:** {len(criancas)} crianças")
+        
+        legend_items = [
+            ("#2E8B57","Eutrofia / Adequado","white"),("#FFD700","Risco de Sobrepeso","#333"),
+            ("#FF8C00","Sobrepeso","white"),("#FF0000","Obesidade","white"),
+            ("#FF4500","Baixo Peso / Magreza","white"),("#8B0000","Muito Baixo / Magreza Acentuada","white"),
+            ("#808080","Sem Medicao","white"),
+        ]
+        legend_html = " ".join([f'<span style="background:{cor};color:{txt};padding:3px 10px;border-radius:5px;font-size:0.78rem;margin-right:4px;">{label}</span>' for cor,label,txt in legend_items])
+        st.markdown(legend_html, unsafe_allow_html=True)
+
+        if criancas:
+            is_imla = is_imla_group(grupo_sel)
+            comunidade_header = '<th style="padding:10px 8px;text-align:center;">Comunidade</th>' if is_imla else ""
             
-            legend_items = [
-                ("#2E8B57","Eutrofia / Adequado","white"),("#FFD700","Risco de Sobrepeso","#333"),
-                ("#FF8C00","Sobrepeso","white"),("#FF0000","Obesidade","white"),
-                ("#FF4500","Baixo Peso / Magreza","white"),("#8B0000","Muito Baixo / Magreza Acentuada","white"),
-                ("#808080","Sem Medicao","white"),
-            ]
-            legend_html = " ".join([f'<span style="background:{cor};color:{txt};padding:3px 10px;border-radius:5px;font-size:0.78rem;margin-right:4px;">{label}</span>' for cor,label,txt in legend_items])
-            st.markdown(legend_html, unsafe_allow_html=True)
-
-            if criancas:
-                is_imla = is_imla_group(grupo_sel)
-                comunidade_header = '<th style="padding:10px 8px;text-align:center;">Comunidade</th>' if is_imla else ""
+            table_html = f"""
+            <style>
+                @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap');
+                * {{ font-family: 'Nunito', sans-serif; }}
+            </style>
+            <div style="overflow-x:auto;">
+            <table style="width:100%;border-collapse:collapse;box-shadow:0 2px 12px rgba(106,27,154,0.15);border-radius:10px;overflow:hidden;font-size:0.88rem;">
+            <thead><tr style="background:#6A1B9A;color:white;">
+                <th style="padding:10px 8px;text-align:left;">Nome</th>
+                <th style="padding:10px 8px;text-align:center;">Sexo</th>
+                <th style="padding:10px 8px;text-align:center;">Nascimento</th>
+                <th style="padding:10px 8px;text-align:center;">Idade Atual</th>
+                {comunidade_header}
+                <th style="padding:10px 8px;text-align:center;">Ultima Afericao</th>
+                <th style="padding:10px 8px;text-align:center;">Peso (kg)</th>
+                <th style="padding:10px 8px;text-align:center;">Altura (cm)</th>
+                <th style="padding:10px 8px;text-align:center;">IMC</th>
+                <th style="padding:10px 8px;text-align:center;">Diagnostico Nutricional</th>
+            </tr></thead><tbody>"""
+            
+            for i, c in enumerate(criancas):
+                bg = "#FAF0FF" if i % 2 == 0 else "white"
+                meds = c["medicoes"]
+                ultima = next((m for m in reversed(meds) if m["peso"] > 0 and m["altura"] > 0), None)
                 
-                table_html = f"""
-                <style>
-                    @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap');
-                    * {{ font-family: 'Nunito', sans-serif; }}
-                </style>
-                <div style="overflow-x:auto;">
-                <table style="width:100%;border-collapse:collapse;box-shadow:0 2px 12px rgba(106,27,154,0.15);border-radius:10px;overflow:hidden;font-size:0.88rem;">
-                <thead><tr style="background:#6A1B9A;color:white;">
-                    <th style="padding:10px 8px;text-align:left;">Nome</th>
-                    <th style="padding:10px 8px;text-align:center;">Sexo</th>
-                    <th style="padding:10px 8px;text-align:center;">Nascimento</th>
-                    <th style="padding:10px 8px;text-align:center;">Idade Atual</th>
-                    {comunidade_header}
-                    <th style="padding:10px 8px;text-align:center;">Ultima Afericao</th>
-                    <th style="padding:10px 8px;text-align:center;">Peso (kg)</th>
-                    <th style="padding:10px 8px;text-align:center;">Altura (cm)</th>
-                    <th style="padding:10px 8px;text-align:center;">IMC</th>
-                    <th style="padding:10px 8px;text-align:center;">Diagnostico Nutricional</th>
-                </tr></thead><tbody>"""
+                idade_meses = round(calcular_idade_meses(c["data_nascimento"], str(date.today())))
                 
-                for i, c in enumerate(criancas):
-                    bg = "#FAF0FF" if i % 2 == 0 else "white"
-                    meds = c["medicoes"]
-                    ultima = next((m for m in reversed(meds) if m["peso"] > 0 and m["altura"] > 0), None)
-                    
-                    idade_meses = round(calcular_idade_meses(c["data_nascimento"], str(date.today())))
-                    
-                    if ultima:
-                        imc = ultima["peso"] / pow(ultima["altura"] / 100, 2)
-                        meses_med = calcular_idade_meses(c["data_nascimento"], ultima["data_medicao"])
-                        ref = get_ref(c["sexo"], "imc_idade")
-                        if ref and meses_med <= 228:
-                            lim = obter_limites(ref, meses_med, "meses")
-                            status, cor = classificar_nutricional(imc, lim, "imc_idade", meses_med)
-                        else:
-                            status, cor = "Fora da faixa", "#808080"
+                if ultima:
+                    imc = ultima["peso"] / pow(ultima["altura"] / 100, 2)
+                    meses_med = calcular_idade_meses(c["data_nascimento"], ultima["data_medicao"])
+                    ref = get_ref(c["sexo"], "imc_idade")
+                    if ref and meses_med <= 228:
+                        lim = obter_limites(ref, meses_med, "meses")
+                        status, cor = classificar_nutricional(imc, lim, "imc_idade", meses_med)
                     else:
-                        status, cor = "Sem medicao", "#808080"
-                        imc = 0
+                        status, cor = "Fora da faixa", "#808080"
+                else:
+                    status, cor = "Sem medicao", "#808080"
+                    imc = 0
 
-                    peso_txt = f"{ultima['peso']:.1f}" if ultima else "-"
-                    altura_txt = f"{ultima['altura']:.1f}" if ultima else "-"
-                    imc_txt = f"{imc:.1f}" if ultima else "-"
-                    cor_txt = "#333" if cor == "#FFD700" else "white"
-                    comunidade_td = f'<td style="padding:9px 8px;text-align:center;">{c.get("comunidade") or "-"}</td>' if is_imla else ""
-                    
-                    table_html += f"""
-                    <tr style="background:{bg};border-bottom:1px solid #E1BEE7;">
-                        <td style="padding:9px 12px;font-weight:600;color:#4A148C;">{c['nome']}</td>
-                        <td style="padding:9px 8px;text-align:center;">{c['sexo']}</td>
-                        <td style="padding:9px 8px;text-align:center;">{format_date_br(c['data_nascimento'])}</td>
-                        <td style="padding:9px 8px;text-align:center;">{idade_meses} meses</td>
-                        {comunidade_td}
-                        <td style="padding:9px 8px;text-align:center;">{format_date_br(ultima['data_medicao']) if ultima else '-'}</td>
-                        <td style="padding:9px 8px;text-align:center;">{peso_txt}</td>
-                        <td style="padding:9px 8px;text-align:center;">{altura_txt}</td>
-                        <td style="padding:9px 8px;text-align:center;">{imc_txt}</td>
-                        <td style="padding:9px 14px;text-align:center;">
-                            <span style="background:{cor};color:{cor_txt};padding:5px 10px;border-radius:7px;font-weight:bold;font-size:0.8rem;display:inline-block;min-width:160px;">{status}</span>
-                        </td>
-                    </tr>"""
+                peso_txt = f"{ultima['peso']:.1f}" if ultima else "-"
+                altura_txt = f"{ultima['altura']:.1f}" if ultima else "-"
+                imc_txt = f"{imc:.1f}" if ultima else "-"
+                cor_txt = "#333" if cor == "#FFD700" else "white"
+                comunidade_td = f'<td style="padding:9px 8px;text-align:center;">{c.get("comunidade") or "-"}</td>' if is_imla else ""
+                
+                table_html += f"""
+                <tr style="background:{bg};border-bottom:1px solid #E1BEE7;">
+                    <td style="padding:9px 12px;font-weight:600;color:#4A148C;">{c['nome']}</td>
+                    <td style="padding:9px 8px;text-align:center;">{c['sexo']}</td>
+                    <td style="padding:9px 8px;text-align:center;">{format_date_br(c['data_nascimento'])}</td>
+                    <td style="padding:9px 8px;text-align:center;">{idade_meses} meses</td>
+                    {comunidade_td}
+                    <td style="padding:9px 8px;text-align:center;">{format_date_br(ultima['data_medicao']) if ultima else '-'}</td>
+                    <td style="padding:9px 8px;text-align:center;">{peso_txt}</td>
+                    <td style="padding:9px 8px;text-align:center;">{altura_txt}</td>
+                    <td style="padding:9px 8px;text-align:center;">{imc_txt}</td>
+                    <td style="padding:9px 14px;text-align:center;">
+                        <span style="background:{cor};color:{cor_txt};padding:5px 10px;border-radius:7px;font-weight:bold;font-size:0.8rem;display:inline-block;min-width:160px;">{status}</span>
+                    </td>
+                </tr>"""
 
-                table_html += "</tbody></table></div>"
-                table_height = min(700, 120 + len(criancas) * 48)
-                components.html(table_html, height=table_height, scrolling=True)    
+            table_html += "</tbody></table></div>"
+            table_height = min(700, 120 + len(criancas) * 48)
+            components.html(table_html, height=table_height, scrolling=True)    
 
-            st.markdown("""
-                <div class="disclaimer">
-                    <strong>⚠️ Importante:</strong> As classificacoes feitas pelo aplicativo utilizam somente dados antropometricos
-                    (Peso, Estatura e IMC), nao levando em consideracao outros parametros que sao necessarios para um diagnostico
-                    nutricional completo, como exames bioquimicos, avaliacao dos habitos alimentares e exames clinicos. Por isso,
-                    estes resultados nao substituem o diagnostico individualizado feito por um profissional capacitado e habilitado.
-                    Essas informacoes sao para fins de conhecimento e rastreamento do perfil nutricional da instituicao.
-                </div>""", unsafe_allow_html=True)
+        st.markdown("""
+            <div class="disclaimer">
+                <strong>⚠️ Importante:</strong> As classificacoes feitas pelo aplicativo utilizam somente dados antropometricos
+                (Peso, Estatura e IMC), nao levando em consideracao outros parametros que sao necessarios para um diagnostico
+                nutricional completo, como exames bioquimicos, avaliacao dos habitos alimentares e exames clinicos. Por isso,
+                estes resultados nao substituem o diagnostico individualizado feito por um profissional capacitado e habilitado.
+                Essas informacoes sao para fins de conhecimento e rastreamento do perfil nutricional da instituicao.
+            </div>""", unsafe_allow_html=True)
 
-        else:
-            if not criancas:
-                if can_write(user, grupo_sel["nome"]):
-                    st.markdown("#### ➕ Cadastrar Criança nesta Turma")
-                    novo_nome = st.text_input("Nome completo", key="novo_nome_crianca", placeholder="Nome completo")
-                    novo_sexo = st.selectbox("Sexo", ["Masculino", "Feminino"], key="novo_sexo_crianca")
-                    nova_nasc = st.date_input("Data de nascimento", value=date(2018, 1, 1), key="nova_nasc_crianca")
-                    nova_comunidade = ""
-                    if is_imla_group(grupo_sel):
-                        nova_comunidade = st.text_input("Comunidade", key="nova_comunidade_crianca", placeholder="Comunidade")
-                    if st.button("Cadastrar Criança", use_container_width=True, key="btn_criar_crianca"):
-                        if novo_nome and novo_nome.strip():
-                            sexo_val = "M" if novo_sexo == "Masculino" else "F"
-                            conn.execute(
-                                "INSERT INTO criancas (nome, sexo, data_nascimento, grupo_id, turma_id, comunidade) VALUES (?, ?, ?, ?, ?, ?)",
-                                (novo_nome.strip(), sexo_val, str(nova_nasc), grupo_sel["id"], turma_sel["id"],
-                                 nova_comunidade.strip() if nova_comunidade else None))
-                            conn.commit()
-                            set_success_message("Aluno cadastrado com sucesso!")
-                            st.rerun()
+    else:
+        if not criancas:
+            if can_write(user, grupo_sel["nome"]):
+                st.markdown("#### ➕ Cadastrar Criança nesta Turma")
+                novo_nome = st.text_input("Nome completo", key="novo_nome_crianca", placeholder="Nome completo")
+                novo_sexo = st.selectbox("Sexo", ["Masculino", "Feminino"], key="novo_sexo_crianca")
+                nova_nasc = st.date_input("Data de nascimento", value=date(2018, 1, 1), key="nova_nasc_crianca")
+                nova_comunidade = ""
+                if is_imla_group(grupo_sel):
+                    nova_comunidade = st.text_input("Comunidade", key="nova_comunidade_crianca", placeholder="Comunidade")
+                if st.button("Cadastrar Criança", use_container_width=True, key="btn_criar_crianca"):
+                    if novo_nome and novo_nome.strip():
+                        sexo_val = "M" if novo_sexo == "Masculino" else "F"
+                        conn.execute(
+                            "INSERT INTO criancas (nome, sexo, data_nascimento, grupo_id, turma_id, comunidade) VALUES (?, ?, ?, ?, ?, ?)",
+                            (novo_nome.strip(), sexo_val, str(nova_nasc), grupo_sel["id"], turma_sel["id"],
+                             nova_comunidade.strip() if nova_comunidade else None))
+                        conn.commit()
+                        set_success_message("Aluno cadastrado com sucesso!")
+                        st.rerun()
             else:
                 st.markdown("""
                 <div style='text-align:center; padding:60px 20px; color:#7B1FA2;'>
                     <div style='font-size:3rem; margin-bottom:16px;'>👶</div>
                     <h2 style='color:#4A148C;'>Nenhuma criança cadastrada</h2>
                 </div>""", unsafe_allow_html=True)
-else:  # Este else corresponde ao 'if not criancas'
+        else:  # Este else corresponde ao 'if not criancas'
             crianca_names = [c["nome"] for c in criancas]
             sel_crianca_nome = st.selectbox("👶 Selecione a crianca:", crianca_names)
             crianca_sel = next((c for c in criancas if c["nome"] == sel_crianca_nome), None)
