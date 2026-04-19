@@ -956,10 +956,16 @@ def main_app():
         legend_html = " ".join([f'<span style="background:{cor};color:{txt};padding:3px 10px;border-radius:5px;font-size:0.78rem;margin-right:4px;">{label}</span>' for cor,label,txt in legend_items])
         st.markdown(legend_html, unsafe_allow_html=True)
 
-        if criancas:
+        # ... (dentro do seu if criancas:)
             is_imla = is_imla_group(grupo_sel)
             comunidade_header = '<th style="padding:10px 8px;text-align:center;">Comunidade</th>' if is_imla else ""
+            
+            # Adicionamos a importação e o estilo da fonte logo no início da string
             table_html = f"""
+            <style>
+                @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap');
+                * {{ font-family: 'Nunito', sans-serif; }}
+            </style>
             <div style="overflow-x:auto;">
             <table style="width:100%;border-collapse:collapse;box-shadow:0 2px 12px rgba(106,27,154,0.15);border-radius:10px;overflow:hidden;font-size:0.88rem;">
             <thead><tr style="background:#6A1B9A;color:white;">
@@ -974,6 +980,7 @@ def main_app():
                 <th style="padding:10px 8px;text-align:center;">IMC</th>
                 <th style="padding:10px 8px;text-align:center;">Diagnostico Nutricional</th>
             </tr></thead><tbody>"""
+            
             for i, c in enumerate(criancas):
                 bg = "#FAF0FF" if i % 2 == 0 else "white"
                 meds = c["medicoes"]
@@ -982,7 +989,9 @@ def main_app():
                     if m["peso"] > 0 and m["altura"] > 0:
                         ultima = m
                         break
+                
                 idade_meses = round(calcular_idade_meses(c["data_nascimento"], str(date.today())))
+                
                 if ultima:
                     imc = ultima["peso"] / pow(ultima["altura"] / 100, 2)
                     meses_med = calcular_idade_meses(c["data_nascimento"], ultima["data_medicao"])
@@ -995,11 +1004,13 @@ def main_app():
                 else:
                     status, cor = "Sem medicao", "#808080"
                     imc = 0
+
                 peso_txt = f"{ultima['peso']:.1f}" if ultima else "-"
                 altura_txt = f"{ultima['altura']:.1f}" if ultima else "-"
                 imc_txt = f"{imc:.1f}" if ultima else "-"
                 cor_txt = "#333" if cor == "#FFD700" else "white"
                 comunidade_td = f'<td style="padding:9px 8px;text-align:center;">{c.get("comunidade") or "-"}</td>' if is_imla else ""
+                
                 table_html += f"""
                 <tr style="background:{bg};border-bottom:1px solid #E1BEE7;">
                     <td style="padding:9px 12px;font-weight:600;color:#4A148C;">{c['nome']}</td>
@@ -1015,6 +1026,7 @@ def main_app():
                         <span style="background:{cor};color:{cor_txt};padding:5px 10px;border-radius:7px;font-weight:bold;font-size:0.8rem;display:inline-block;min-width:160px;">{status}</span>
                     </td>
                 </tr>"""
+
             table_html += "</tbody></table></div>"
             table_height = min(700, 120 + len(criancas) * 48)
             components.html(table_html, height=table_height, scrolling=True)
