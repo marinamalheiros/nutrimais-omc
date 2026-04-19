@@ -1031,7 +1031,7 @@ def main_app():
             table_height = min(700, 120 + len(criancas) * 48)
             components.html(table_html, height=table_height, scrolling=True)      
 
-        st.markdown("""
+    st.markdown("""
         <div class="disclaimer">
             <strong>⚠️ Importante:</strong> As classificacoes feitas pelo aplicativo utilizam somente dados antropometricos
             (Peso, Estatura e IMC), nao levando em consideracao outros parametros que sao necessarios para um diagnostico
