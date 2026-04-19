@@ -538,7 +538,7 @@ def render_imla_turma_buttons(turmas):
         texto_cor = "#333" if cor == "#ffc713" else "white"
         buttons_html.append(
             f'<a class="imla-turma-button" style="background:{cor};color:{texto_cor} !important;" '
-            f'href__="?imla_turma={quote(nome)}&goto_coletivo=1" target="_self">{nome}</a>'
+            f'href="?imla_turma={quote(nome)}&goto_coletivo=1" target="_self">{nome}</a>'
         )
     st.markdown(f'<div class="imla-turma-buttons">{"".join(buttons_html)}</div>', unsafe_allow_html=True)
 
