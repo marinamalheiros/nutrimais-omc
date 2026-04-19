@@ -527,6 +527,7 @@ def render_imla_header():
         </div>
         </div>""", unsafe_allow_html=True)
 
+# ── ALTERAÇÃO 1: botões linkam para ?imla_turma=NOME&goto_coletivo=1 ──
 def render_imla_turma_buttons(turmas):
     if not turmas:
         return
@@ -536,7 +537,8 @@ def render_imla_turma_buttons(turmas):
         cor = IMLA_TURMA_COLORS.get(nome, "#6741d9")
         texto_cor = "#333" if cor == "#ffc713" else "white"
         buttons_html.append(
-            f'<a class="imla-turma-button" style="background:{cor};color:{texto_cor} !important;" href="?imla_turma={quote(nome)}" target="_self">{nome}</a>'
+            f'<a class="imla-turma-button" style="background:{cor};color:{texto_cor} !important;" '
+            f'href__="?imla_turma={quote(nome)}&goto_coletivo=1" target="_self">{nome}</a>'
         )
     st.markdown(f'<div class="imla-turma-buttons">{"".join(buttons_html)}</div>', unsafe_allow_html=True)
 
@@ -618,20 +620,23 @@ def main_app():
             st.rerun()
         st.divider()
 
+        # ── ALTERAÇÃO 2: lê query params e faz st.rerun() para aplicar ──
         try:
             imla_turma_param = st.query_params.get("imla_turma")
+            goto_coletivo_param = st.query_params.get("goto_coletivo")
         except Exception:
             imla_turma_param = None
+            goto_coletivo_param = None
         if isinstance(imla_turma_param, list):
             imla_turma_param = imla_turma_param[0] if imla_turma_param else None
         if imla_turma_param:
             st.session_state["_imla_turma"] = imla_turma_param
             st.session_state["_imla_goto_coletivo"] = True
-            st.session_state["pagina_nav"] = "📊 Controle Coletivo"
             try:
                 st.query_params.clear()
             except Exception:
                 pass
+            st.rerun()
 
         if st.session_state.get("_imla_goto_coletivo"):
             pagina_idx = 1
@@ -645,7 +650,6 @@ def main_app():
 
         grupos = conn.execute("SELECT id, nome FROM grupos").fetchall()
 
-        # Seletor de grupo primeiro (AJUSTE 5 da iteração anterior)
         st.markdown("##### 📂 Grupo")
         grupo_names = ["-- Selecione --"] + [g["nome"] for g in grupos]
         grupo_sel_name = st.selectbox("Grupo", grupo_names, label_visibility="collapsed", key="sel_grupo")
@@ -653,7 +657,6 @@ def main_app():
         if grupo_sel_name != "-- Selecione --":
             grupo_sel = next((dict(g) for g in grupos if g["nome"] == grupo_sel_name), None)
 
-        # Remover Grupo
         if can_write(user) and grupo_sel:
             if st.button("🗑 Remover este Grupo", use_container_width=True, key="btn_remover_grupo", type="primary"):
                 st.session_state["_confirmar_remover_grupo"] = grupo_sel["id"]
@@ -682,7 +685,6 @@ def main_app():
                         st.session_state["_confirmar_remover_grupo"] = None
                         st.rerun()
 
-        # Cadastrar grupo depois do seletor
         if can_write(user):
             st.markdown("##### 📂 Cadastrar Grupo")
             novo_grupo = st.text_input("Nome do grupo", key="novo_grupo", label_visibility="collapsed", placeholder="Nome do grupo")
@@ -702,7 +704,6 @@ def main_app():
         if grupo_sel:
             turmas = conn.execute("SELECT id, nome, grupo_id FROM turmas WHERE grupo_id = ?", (grupo_sel["id"],)).fetchall()
 
-    # ── cabeçalho principal ────────────────────────────────────
     header_parts = ["🍎 NutriMais"]
     if grupo_sel and turma_sel:
         header_parts.append(f" | {grupo_sel['nome']} — {turma_sel['nome']}")
@@ -738,7 +739,6 @@ def main_app():
         admin_panel()
         return
 
-    # Botões IMLA coloridos (pill = botão com nome da turma)
     if is_imla_group(grupo_sel) and grupo_sel:
         render_imla_turma_buttons(turmas)
 
@@ -752,18 +752,13 @@ def main_app():
         conn.close()
         return
 
-    # AJUSTE: seletor de turma na tela central
-    # Para IMLA: NÃO mostra o seletor pois os botões já fazem essa função
-    # Para outros grupos: mostra o seletor normalmente
     if grupo_sel and turmas:
         if not is_imla_group(grupo_sel):
-            # Grupos normais: seletor de turma na tela central
             turma_names_central = ["-- Selecione a Turma --"] + [t["nome"] for t in turmas]
             turma_sel_central = st.selectbox("📋 Selecione a Turma", turma_names_central, key="sel_turma_central")
             if turma_sel_central != "-- Selecione a Turma --":
                 turma_sel = next((dict(t) for t in turmas if t["nome"] == turma_sel_central), None)
         else:
-            # IMLA: turma vem do botão clicado
             imla_turma = st.session_state.get("_imla_turma")
             if imla_turma:
                 turma_sel = next((dict(t) for t in turmas if t["nome"] == imla_turma), None)
