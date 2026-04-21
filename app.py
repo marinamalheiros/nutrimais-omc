@@ -142,7 +142,7 @@ def init_db():
         altura REAL NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )""")
-    admin_hash = hash_password("Nutrim@is2026")
+    admin_hash = hash_password("Admin123")
     visitor_hash = hash_password("visitante123")
     c.execute("INSERT OR IGNORE INTO users (username, password_hash, role) VALUES (?, ?, ?)",
               ("admin", admin_hash, "admin"))
@@ -375,7 +375,7 @@ def format_date_br(d):
 def can_write(user, grupo_nome=None):
     if not user:
         return False
-    if user["role"] == "admin":
+    if user["role"] == "":
         return True
     if user["role"] == "group_admin" and grupo_nome and user.get("group_access") == grupo_nome:
         return True
