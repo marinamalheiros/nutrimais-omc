@@ -142,7 +142,7 @@ def init_db():
         altura REAL NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )""")
-    admin_hash = hash_password("admin123")
+    admin_hash = hash_password("Nutrim@is2026")
     visitor_hash = hash_password("visitante123")
     c.execute("INSERT OR IGNORE INTO users (username, password_hash, role) VALUES (?, ?, ?)",
               ("admin", admin_hash, "admin"))
