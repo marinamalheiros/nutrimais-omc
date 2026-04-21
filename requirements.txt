@@ -1,3 +1,4 @@
 streamlit
 numpy
 plotly
+supabase==2.10.0
