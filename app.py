@@ -1,11 +1,12 @@
 import streamlit as st
 import streamlit.components.v1 as components
+import sqlite3
 import hashlib
 import math
 import os
 import base64
+from urllib.parse import quote
 from datetime import datetime, date
-from supabase import create_client, Client
 
 st.set_page_config(
     page_title="NutriMais",
@@ -13,6 +14,15 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+# Keep-alive: previne o app de dormir no Streamlit Cloud
+components.html("""
+<script>
+setInterval(function() {
+    fetch(window.location.href, {method: 'GET', mode: 'no-cors'});
+}, 25000);
+</script>
+""", height=0)
 
 st.markdown("""
 <style>
@@ -53,20 +63,16 @@ st.markdown("""
     .imla-title { font-size: 2rem; font-weight: 900; letter-spacing: 1px; line-height: 1.2; margin: 0; }
     .imla-title-green { color: #a8cf45; }
     .imla-title-blue { color: #5cc6d0; }
+    .imla-turma-buttons { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin: 0 0 20px 0; }
+    .imla-turma-button { color: white !important; text-decoration: none !important; padding: 10px 16px;
+        border-radius: 999px; font-weight: 800; font-size: 0.9rem; box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+        display: inline-block; transition: transform 0.15s ease, box-shadow 0.15s ease; }
+    .imla-turma-button:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.18); }
     .marina-logo img { mix-blend-mode: multiply; }
 </style>
 """, unsafe_allow_html=True)
 
-# ── CONFIGURAÇÃO SUPABASE ──
-SUPABASE_URL = "https://etsjrzpbjbdfjrgwklrs.supabase.co"
-SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
-
-@st.cache_resource
-def get_supabase() -> Client:
-    return create_client(SUPABASE_URL, SUPABASE_KEY)
-
-supabase = get_supabase()
-
+DB_PATH = "nutrimais.db"
 IMLA_GROUP_NAME = "Instituto Mãe Lalu"
 IMLA_LOGO_PATHS = ["imla_logo.png", "logo_imla.png", "instituto_mae_lalu.png", "logo_instituto_mae_lalu.png"]
 
@@ -79,10 +85,11 @@ IMLA_TURMA_COLORS = {
     "Turma Cirandando pelo Mundo": "#6741d9",
 }
 
-# ── FUNÇÕES DE BANCO (substituem sqlite3) ──
-
-def hash_password(password):
-    return hashlib.sha256((password + "nutrimais_salt").encode()).hexdigest()
+def get_db():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    return conn
 
 def set_success_message(message):
     st.session_state["_success_message"] = message
@@ -92,99 +99,71 @@ def show_success_message():
     if message:
         st.success(message)
 
-def db_get_user(username):
-    res = supabase.table("users").select("*").eq("username", username).execute()
-    return res.data[0] if res.data else None
+def init_db():
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT NOT NULL UNIQUE,
+        password_hash TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'visitor',
+        cpf TEXT UNIQUE,
+        group_access TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )""")
+    c.execute("""CREATE TABLE IF NOT EXISTS grupos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        nome TEXT NOT NULL UNIQUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )""")
+    c.execute("""CREATE TABLE IF NOT EXISTS turmas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        nome TEXT NOT NULL,
+        grupo_id INTEGER REFERENCES grupos(id),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )""")
+    c.execute("""CREATE TABLE IF NOT EXISTS criancas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        nome TEXT NOT NULL,
+        sexo TEXT NOT NULL,
+        data_nascimento DATE NOT NULL,
+        grupo_id INTEGER REFERENCES grupos(id),
+        turma_id INTEGER REFERENCES turmas(id),
+        comunidade TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )""")
+    try:
+        conn.execute("ALTER TABLE criancas ADD COLUMN comunidade TEXT")
+        conn.commit()
+    except Exception:
+        pass
+    c.execute("""CREATE TABLE IF NOT EXISTS medicoes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        crianca_id INTEGER REFERENCES criancas(id),
+        data_medicao DATE NOT NULL,
+        peso REAL NOT NULL,
+        altura REAL NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )""")
+    admin_hash = hash_password("Admin123")
+    visitor_hash = hash_password("visitante123")
+    c.execute("INSERT OR IGNORE INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+              ("admin", admin_hash, "admin"))
+    c.execute("INSERT OR IGNORE INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+              ("visitante", visitor_hash, "visitor"))
+    conn.commit()
+    conn.close()
 
-def db_get_all_users():
-    res = supabase.table("users").select("id, username, role, cpf, group_access").execute()
-    return res.data or []
-
-def db_create_user(username, password, role, cpf=None, group_access=None):
-    supabase.table("users").insert({
-        "username": username,
-        "password_hash": hash_password(password),
-        "role": role,
-        "cpf": cpf or None,
-        "group_access": group_access or None,
-    }).execute()
-
-def db_delete_user(user_id):
-    supabase.table("users").delete().eq("id", user_id).execute()
-
-def db_get_grupos():
-    res = supabase.table("grupos").select("id, nome").execute()
-    return res.data or []
-
-def db_create_grupo(nome):
-    supabase.table("grupos").insert({"nome": nome}).execute()
-
-def db_delete_grupo(grupo_id):
-    turmas = supabase.table("turmas").select("id").eq("grupo_id", grupo_id).execute().data or []
-    for t in turmas:
-        criancas = supabase.table("criancas").select("id").eq("turma_id", t["id"]).execute().data or []
-        for c in criancas:
-            supabase.table("medicoes").delete().eq("crianca_id", c["id"]).execute()
-        supabase.table("criancas").delete().eq("turma_id", t["id"]).execute()
-    supabase.table("turmas").delete().eq("grupo_id", grupo_id).execute()
-    supabase.table("criancas").delete().eq("grupo_id", grupo_id).execute()
-    supabase.table("grupos").delete().eq("id", grupo_id).execute()
-
-def db_get_turmas(grupo_id):
-    res = supabase.table("turmas").select("id, nome, grupo_id").eq("grupo_id", grupo_id).execute()
-    return res.data or []
-
-def db_create_turma(nome, grupo_id):
-    supabase.table("turmas").insert({"nome": nome, "grupo_id": grupo_id}).execute()
-
-def db_delete_turma(turma_id):
-    criancas = supabase.table("criancas").select("id").eq("turma_id", turma_id).execute().data or []
-    for c in criancas:
-        supabase.table("medicoes").delete().eq("crianca_id", c["id"]).execute()
-    supabase.table("criancas").delete().eq("turma_id", turma_id).execute()
-    supabase.table("turmas").delete().eq("id", turma_id).execute()
-
-def db_get_criancas(turma_id):
-    res = supabase.table("criancas").select("id, nome, sexo, data_nascimento, grupo_id, turma_id, comunidade").eq("turma_id", turma_id).execute()
-    return res.data or []
-
-def db_create_crianca(nome, sexo, data_nascimento, grupo_id, turma_id, comunidade=None):
-    supabase.table("criancas").insert({
-        "nome": nome, "sexo": sexo, "data_nascimento": str(data_nascimento),
-        "grupo_id": grupo_id, "turma_id": turma_id, "comunidade": comunidade
-    }).execute()
-
-def db_update_crianca(crianca_id, nome, sexo, data_nascimento, comunidade=None):
-    supabase.table("criancas").update({
-        "nome": nome, "sexo": sexo, "data_nascimento": str(data_nascimento), "comunidade": comunidade
-    }).eq("id", crianca_id).execute()
-
-def db_delete_crianca(crianca_id):
-    supabase.table("medicoes").delete().eq("crianca_id", crianca_id).execute()
-    supabase.table("criancas").delete().eq("id", crianca_id).execute()
-
-def db_get_medicoes(crianca_id):
-    res = supabase.table("medicoes").select("id, crianca_id, data_medicao, peso, altura").eq("crianca_id", crianca_id).execute()
-    return res.data or []
-
-def db_upsert_medicao(crianca_id, data_medicao, peso, altura, med_id=None):
-    if med_id:
-        supabase.table("medicoes").update({
-            "data_medicao": data_medicao, "peso": peso, "altura": altura
-        }).eq("id", med_id).execute()
-    else:
-        supabase.table("medicoes").insert({
-            "crianca_id": crianca_id, "data_medicao": data_medicao, "peso": peso, "altura": altura
-        }).execute()
-
-# ── CÁLCULOS OMS (iguais ao original) ──
+def hash_password(password):
+    return hashlib.sha256((password + "nutrimais_salt").encode()).hexdigest()
 
 def lerp_val(arr, x, xi):
     for i in range(len(x) - 1):
         if xi >= x[i] and xi <= x[i + 1]:
             t = (xi - x[i]) / (x[i + 1] - x[i]) if x[i + 1] != x[i] else 0
             return arr[i] + t * (arr[i + 1] - arr[i])
-    if xi <= x[0]: return arr[0]
+    if xi <= x[0]:
+        return arr[0]
     return arr[-1]
 
 def interp_table(eixo, L_arr, M_arr, S_arr):
@@ -282,11 +261,13 @@ def calcular_idade_meses(data_nasc, data_medicao):
     else:
         med = datetime.combine(data_medicao, datetime.min.time())
     diff = (med - nasc).days
-    return round(diff / 30.44 * 10) / 10
+    meses = round(diff / 30.44 * 10) / 10
+    return meses
 
 def obter_limites(ref, valor_eixo, tipo_eixo):
     eixo = ref.get("meses") if tipo_eixo == "meses" else ref.get("altura")
-    if not eixo: return {}
+    if not eixo:
+        return {}
     result = {}
     for z in [-3, -2, -1, 0, 1, 2, 3]:
         key = f"z{z}"
@@ -297,8 +278,10 @@ def obter_limites(ref, valor_eixo, tipo_eixo):
                 t = (valor_eixo - eixo[i]) / (eixo[i + 1] - eixo[i]) if eixo[i + 1] != eixo[i] else 0
                 val = z_arr[i] + t * (z_arr[i + 1] - z_arr[i])
                 break
-        if valor_eixo <= eixo[0]: val = z_arr[0]
-        elif valor_eixo >= eixo[-1]: val = z_arr[-1]
+        if valor_eixo <= eixo[0]:
+            val = z_arr[0]
+        elif valor_eixo >= eixo[-1]:
+            val = z_arr[-1]
         result[z] = val
     return result
 
@@ -308,7 +291,8 @@ def calcular_zscore(ref, eixo_val, tipo_eixo, valor):
         L = lerp_val(ref["_L"], eixo, eixo_val)
         M = lerp_val(ref["_M"], eixo, eixo_val)
         S = lerp_val(ref["_S"], eixo, eixo_val)
-        if M <= 0 or S <= 0: return None
+        if M <= 0 or S <= 0:
+            return None
         if abs(L) > 0.001:
             z = (pow(valor / M, L) - 1) / (L * S)
         else:
@@ -319,22 +303,28 @@ def calcular_zscore(ref, eixo_val, tipo_eixo, valor):
 
 def erf_approx(x):
     t = 1.0 / (1.0 + 0.5 * abs(x))
-    tau = t * math.exp(-x*x - 1.26551223 + t*(1.00002368 + t*(0.37409196 + t*(0.09678418 + t*(-0.18628806 + t*(0.27886807 + t*(-1.13520398 + t*(1.48851587 + t*(-0.82215223 + t*0.17087277)))))))))
+    tau = t * math.exp(-x * x - 1.26551223 + t * (1.00002368 + t * (0.37409196 + t * (0.09678418 + t * (-0.18628806 + t * (0.27886807 + t * (-1.13520398 + t * (1.48851587 + t * (-0.82215223 + t * 0.17087277)))))))))
     return 1 - tau if x >= 0 else tau - 1
 
 def zscore_para_percentil(z):
-    if z is None: return None
+    if z is None:
+        return None
     zc = max(-8, min(8, z))
     p = 0.5 * (1 + erf_approx(zc / math.sqrt(2)))
     return round(p * 1000) / 10
 
 def formatar_percentil(z):
     p = zscore_para_percentil(z)
-    if p is None: return "-"
-    if p < 0.1: return "< P0,1"
-    if p < 1: return "< P1"
-    if p > 99.9: return "> P99,9"
-    if p > 99: return "> P99"
+    if p is None:
+        return "-"
+    if p < 0.1:
+        return "< P0,1"
+    if p < 1:
+        return "< P1"
+    if p > 99.9:
+        return "> P99,9"
+    if p > 99:
+        return "> P99"
     return f"P{round(p)}"
 
 def classificar_nutricional(valor, limites, tipo_indice, idade_meses=0):
@@ -372,7 +362,8 @@ def classificar_nutricional(valor, limites, tipo_indice, idade_meses=0):
     return ("Sem classificacao", "#808080")
 
 def format_date_br(d):
-    if not d: return "-"
+    if not d:
+        return "-"
     try:
         if isinstance(d, str):
             parts = d.split("-")
@@ -380,29 +371,37 @@ def format_date_br(d):
                 return f"{parts[2]}/{parts[1]}/{parts[0]}"
         elif isinstance(d, date):
             return d.strftime("%d/%m/%Y")
-    except: pass
+    except:
+        pass
     return str(d)
 
 def can_write(user, grupo_nome=None):
-    if not user: return False
-    if user["role"] == "admin": return True
-    if user["role"] == "group_admin" and grupo_nome and user.get("group_access") == grupo_nome: return True
+    if not user:
+        return False
+    if user["role"] == "admin":
+        return True
+    if user["role"] == "group_admin" and grupo_nome and user.get("group_access") == grupo_nome:
+        return True
     return False
 
 def can_view_group(user, grupo_nome=None):
-    if not user: return False
-    if user["role"] in ("admin", "visitor"): return True
-    if user["role"] in ("group_admin", "group_visitor") and grupo_nome and user.get("group_access") == grupo_nome: return True
+    if not user:
+        return False
+    if user["role"] in ("admin", "visitor"):
+        return True
+    if user["role"] in ("group_admin", "group_visitor") and grupo_nome and user.get("group_access") == grupo_nome:
+        return True
     return False
 
-# ── RENDER HELPERS ──
+init_db()
 
 if "user" not in st.session_state:
     st.session_state.user = None
 
 def render_marina_logo(max_width="220px", margin_bottom="12px"):
-    nomes = ["logo_marina.jpg","logo_marina.png","LOGONUTRIMARINAMALHEIROS.jpg",
-             "LOGONUTRIMARINAMALHEIROS.png","logo_marina_malheiros.jpg","logo_marina_malheiros.png"]
+    nomes = ["logo_marina.jpg","logo_marina.png",
+             "LOGONUTRIMARINAMALHEIROS.jpg","LOGONUTRIMARINAMALHEIROS.png",
+             "logo_marina_malheiros.jpg","logo_marina_malheiros.png"]
     for nome in nomes:
         if os.path.exists(nome):
             ext = os.path.splitext(nome)[1].lower().replace(".","")
@@ -414,6 +413,129 @@ def render_marina_logo(max_width="220px", margin_bottom="12px"):
                 f'<img src="data:image/{mime};base64,{b64}" style="max-width:{max_width};height:auto;display:inline-block;">'
                 f'</div>', unsafe_allow_html=True)
             return
+
+def login_page():
+    render_marina_logo(max_width="200px", margin_bottom="10px")
+    st.markdown("<div style='text-align:center; font-size:2.2rem; letter-spacing:6px; margin-top:10px;'>🍎 🥕 🥦 🍓 🍌 🍇 🥥 🥑</div>", unsafe_allow_html=True)
+    st.markdown("<h1 style='color:#4A148C; text-align:center; font-size:2.4rem; font-weight:900;'>🍎 NutriMais</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='color:#7B1FA2; text-align:center; font-size:1.05rem; margin-bottom:28px;'>Acompanhamento Nutricional de Criancas e Adolescentes</p>", unsafe_allow_html=True)
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        with st.form("login_form"):
+            st.markdown("<h2 style='color:#4A148C; text-align:center;'>Entrar no sistema</h2>", unsafe_allow_html=True)
+            username = st.text_input("Usuario")
+            password = st.text_input("Senha", type="password")
+            submitted = st.form_submit_button("Entrar", use_container_width=True)
+            if submitted:
+                if username and password:
+                    conn = get_db()
+                    user = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+                    conn.close()
+                    if user and user["password_hash"] == hash_password(password):
+                        st.session_state.user = {
+                            "id": user["id"], "username": user["username"],
+                            "role": user["role"], "cpf": user["cpf"],
+                            "group_access": user["group_access"],
+                        }
+                        st.rerun()
+                    else:
+                        st.error("Credenciais invalidas")
+                else:
+                    st.error("Preencha usuario e senha")
+    st.markdown("<div style='text-align:center; font-size:2.2rem; letter-spacing:6px; margin-top:20px;'>🌽 🍅 🍆 🥒 🥬 🧅 🍐 🍊</div>", unsafe_allow_html=True)
+
+def admin_panel():
+    st.markdown("## ⚙️ Gerenciamento de Usuarios")
+    conn = get_db()
+    users = conn.execute("SELECT id, username, role, cpf, group_access FROM users").fetchall()
+    grupos = conn.execute("SELECT id, nome FROM grupos").fetchall()
+    conn.close()
+
+    # ── CRIAR NOVO USUÁRIO ──
+    with st.expander("➕ Criar Novo Usuario", expanded=False):
+        with st.form("create_user_form"):
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                new_username = st.text_input("Usuario *")
+            with c2:
+                new_password = st.text_input("Senha *", type="password")
+            with c3:
+                new_role = st.selectbox("Perfil", ["visitor", "group_visitor", "group_admin", "admin"],
+                    format_func=lambda x: {"visitor":"Visitante Geral","group_visitor":"Visitante de Grupo","group_admin":"Admin de Grupo","admin":"Administrador Geral"}[x])
+            c4, c5 = st.columns(2)
+            with c4:
+                new_cpf = st.text_input("CPF (opcional)")
+            with c5:
+                grupo_names = [""] + [g["nome"] for g in grupos]
+                new_group = st.selectbox("Grupo (para Admin/Visitante de Grupo)", grupo_names)
+            if st.form_submit_button("Criar Usuario", use_container_width=True):
+                if new_username and new_password:
+                    conn = get_db()
+                    try:
+                        conn.execute(
+                            "INSERT INTO users (username, password_hash, role, cpf, group_access) VALUES (?, ?, ?, ?, ?)",
+                            (new_username, hash_password(new_password), new_role,
+                             new_cpf if new_cpf else None,
+                             new_group if new_role in ("group_admin","group_visitor") and new_group else None))
+                        conn.commit()
+                        st.success(f'Usuario "{new_username}" criado!')
+                        st.rerun()
+                    except sqlite3.IntegrityError:
+                        st.error("Usuario ja existe!")
+                    finally:
+                        conn.close()
+                else:
+                    st.error("Usuario e senha sao obrigatorios")
+
+    # ── ALTERAR SENHA ──
+    with st.expander("🔑 Alterar Senha de Usuario", expanded=False):
+        with st.form("change_password_form"):
+            users_list = [u["username"] for u in users]
+            sel_user_pwd = st.selectbox("Selecione o usuario", users_list, key="sel_user_pwd")
+            nova_senha = st.text_input("Nova senha *", type="password", key="nova_senha_input")
+            confirmar_senha = st.text_input("Confirmar nova senha *", type="password", key="confirmar_senha_input")
+            if st.form_submit_button("Alterar Senha", use_container_width=True):
+                if nova_senha and confirmar_senha:
+                    if nova_senha == confirmar_senha:
+                        conn = get_db()
+                        conn.execute("UPDATE users SET password_hash=? WHERE username=?",
+                                     (hash_password(nova_senha), sel_user_pwd))
+                        conn.commit()
+                        conn.close()
+                        st.success(f'Senha do usuario "{sel_user_pwd}" alterada com sucesso!')
+                    else:
+                        st.error("As senhas nao coincidem!")
+                else:
+                    st.error("Preencha os dois campos de senha.")
+
+    st.markdown("### 👥 Usuarios Cadastrados")
+    for u in users:
+        role_map = {"admin":"👑 Administrador Geral","group_admin":"🔧 Admin de Grupo","group_visitor":"👁 Visitante de Grupo","visitor":"👁 Visitante Geral"}
+        col1, col2, col3 = st.columns([3, 2, 1])
+        with col1:
+            st.markdown(f"**{u['username']}**")
+            info_parts = []
+            if u["cpf"]: info_parts.append(f"CPF: {u['cpf']}")
+            if u["group_access"]: info_parts.append(f"Grupo: {u['group_access']}")
+            if info_parts: st.caption(" | ".join(info_parts))
+        with col2:
+            st.markdown(f"`{role_map.get(u['role'], u['role'])}`")
+        with col3:
+            if u["username"] != "admin":
+                if st.button("🗑 Remover", key=f"del_user_{u['id']}"):
+                    conn = get_db()
+                    conn.execute("DELETE FROM users WHERE id = ?", (u["id"],))
+                    conn.commit()
+                    conn.close()
+                    st.rerun()
+        st.divider()
+    st.info("""
+    **📖 Niveis de acesso:**
+    - **Visitante Geral:** Visualiza todos os grupos, sem alteracoes.
+    - **Visitante de Grupo:** Visualiza apenas o grupo vinculado, sem alteracoes.
+    - **Admin de Grupo:** Administra um grupo especifico.
+    - **Administrador Geral:** Acesso total ao sistema.
+    """)
 
 def is_imla_group(grupo):
     return bool(grupo and grupo.get("nome") == IMLA_GROUP_NAME)
@@ -445,30 +567,18 @@ def render_imla_header():
         </div>""", unsafe_allow_html=True)
 
 def render_imla_turma_buttons(turmas):
-    if not turmas: return
-    st.markdown("""
-        <style>
-        div.stButton > button { border-radius: 20px !important; border: none !important;
-            padding: 4px 16px !important; font-weight: bold !important; transition: all 0.2s ease;
-            height: auto !important; min-height: 32px !important; }
-        div.stButton > button:hover { transform: scale(1.05); opacity: 0.9; }
-        </style>
-    """, unsafe_allow_html=True)
-    cols = st.columns(len(turmas))
-    for i, turma in enumerate(turmas):
+    if not turmas:
+        return
+    buttons_html = []
+    for turma in turmas:
         nome = turma["nome"]
         cor = IMLA_TURMA_COLORS.get(nome, "#6741d9")
-        st.markdown(f"""
-            <style>
-            div[data-testid="stHorizontalBlock"] > div:nth-child({i+1}) button {{
-                background-color: {cor} !important; color: white !important;
-            }}
-            </style>
-        """, unsafe_allow_html=True)
-        if cols[i].button(nome, key=f"btn_nav_{nome}_{i}"):
-            st.session_state["_imla_turma"] = nome
-            st.session_state["_imla_goto_coletivo"] = True
-            st.rerun()
+        texto_cor = "#333" if cor == "#ffc713" else "white"
+        buttons_html.append(
+            f'<a class="imla-turma-button" style="background:{cor};color:{texto_cor} !important;" '
+            f'href__="?imla_turma={quote(nome)}&goto_coletivo=1" target="_self">{nome}</a>'
+        )
+    st.markdown(f'<div class="imla-turma-buttons">{"".join(buttons_html)}</div>', unsafe_allow_html=True)
 
 def render_growth_chart(sexo, tipo, medicoes_data, titulo, eixo_x_campo, eixo_y_campo, label_x, label_y):
     try:
@@ -486,16 +596,19 @@ def render_growth_chart(sexo, tipo, medicoes_data, titulo, eixo_x_campo, eixo_y_
         vy = m["peso"] if eixo_y_campo == "peso" else (m["altura"] if eixo_y_campo == "altura" else m["imc"])
         if vx and vy and vx > 0 and vy > 0:
             pontos.append({"vx": vx, "vy": vy, "data": m.get("data", "")})
-    if not pontos: return
+    if not pontos:
+        return
     vx_vals = [p["vx"] for p in pontos]
     vx_min, vx_max = min(vx_vals), max(vx_vals)
     margem = max((vx_max - vx_min) * 0.5, 10)
     x_min = max(0, vx_min - margem)
     x_max = vx_max + margem
     eixo = ref.get("meses") if eixo_x_campo != "altura" else ref.get("altura")
-    if not eixo: return
+    if not eixo:
+        return
     filtered_eixo = [x for x in eixo if x >= x_min and x <= x_max]
-    if not filtered_eixo: return
+    if not filtered_eixo:
+        return
     z_keys = ["z-3","z-2","z-1","z0","z1","z2","z3"]
     z_colors = {"z3":"#DC143C","z2":"#FF8C00","z1":"#4682B4","z0":"#2E8B57","z-1":"#4682B4","z-2":"#FF8C00","z-3":"#DC143C"}
     z_labels = {"z3":"+3","z2":"+2","z1":"+1","z0":"Mediana","z-1":"-1","z-2":"-2","z-3":"-3"}
@@ -531,93 +644,9 @@ def render_growth_chart(sexo, tipo, medicoes_data, titulo, eixo_x_campo, eixo_y_
             unsafe_allow_html=True)
     return fig
 
-# ── PÁGINAS ──
-
-def login_page():
-    render_marina_logo(max_width="200px", margin_bottom="10px")
-    st.markdown("<div style='text-align:center; font-size:2.2rem; letter-spacing:6px; margin-top:10px;'>🍎 🥕 🥦 🍓 🍌 🍇 🥥 🥑</div>", unsafe_allow_html=True)
-    st.markdown("<h1 style='color:#4A148C; text-align:center; font-size:2.4rem; font-weight:900;'>🍎 NutriMais</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='color:#7B1FA2; text-align:center; font-size:1.05rem; margin-bottom:28px;'>Acompanhamento Nutricional de Criancas e Adolescentes</p>", unsafe_allow_html=True)
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        with st.form("login_form"):
-            st.markdown("<h2 style='color:#4A148C; text-align:center;'>Entrar no sistema</h2>", unsafe_allow_html=True)
-            username = st.text_input("Usuario")
-            password = st.text_input("Senha", type="password")
-            submitted = st.form_submit_button("Entrar", use_container_width=True)
-            if submitted:
-                if username and password:
-                    user = db_get_user(username)
-                    if user and user["password_hash"] == hash_password(password):
-                        st.session_state.user = {
-                            "id": user["id"], "username": user["username"],
-                            "role": user["role"], "cpf": user.get("cpf"),
-                            "group_access": user.get("group_access"),
-                        }
-                        st.rerun()
-                    else:
-                        st.error("Credenciais invalidas")
-                else:
-                    st.error("Preencha usuario e senha")
-    st.markdown("<div style='text-align:center; font-size:2.2rem; letter-spacing:6px; margin-top:20px;'>🌽 🍅 🍆 🥒 🥬 🧅 🍐 🍊</div>", unsafe_allow_html=True)
-
-def admin_panel():
-    st.markdown("## ⚙️ Gerenciamento de Usuarios")
-    users = db_get_all_users()
-    grupos = db_get_grupos()
-    with st.expander("➕ Criar Novo Usuario", expanded=True):
-        with st.form("create_user_form"):
-            c1, c2, c3 = st.columns(3)
-            with c1: new_username = st.text_input("Usuario *")
-            with c2: new_password = st.text_input("Senha *", type="password")
-            with c3:
-                new_role = st.selectbox("Perfil", ["visitor","group_visitor","group_admin","admin"],
-                    format_func=lambda x: {"visitor":"Visitante Geral","group_visitor":"Visitante de Grupo","group_admin":"Admin de Grupo","admin":"Administrador Geral"}[x])
-            c4, c5 = st.columns(2)
-            with c4: new_cpf = st.text_input("CPF (opcional)")
-            with c5:
-                grupo_names = [""] + [g["nome"] for g in grupos]
-                new_group = st.selectbox("Grupo (para Admin/Visitante de Grupo)", grupo_names)
-            if st.form_submit_button("Criar Usuario", use_container_width=True):
-                if new_username and new_password:
-                    try:
-                        db_create_user(new_username, new_password, new_role,
-                            new_cpf if new_cpf else None,
-                            new_group if new_role in ("group_admin","group_visitor") and new_group else None)
-                        st.success(f'Usuario "{new_username}" criado!')
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Erro: {e}")
-                else:
-                    st.error("Usuario e senha sao obrigatorios")
-    st.markdown("### 👥 Usuarios Cadastrados")
-    for u in users:
-        role_map = {"admin":"👑 Administrador Geral","group_admin":"🔧 Admin de Grupo","group_visitor":"👁 Visitante de Grupo","visitor":"👁 Visitante Geral"}
-        col1, col2, col3 = st.columns([3, 2, 1])
-        with col1:
-            st.markdown(f"**{u['username']}**")
-            info_parts = []
-            if u.get("cpf"): info_parts.append(f"CPF: {u['cpf']}")
-            if u.get("group_access"): info_parts.append(f"Grupo: {u['group_access']}")
-            if info_parts: st.caption(" | ".join(info_parts))
-        with col2:
-            st.markdown(f"`{role_map.get(u['role'], u['role'])}`")
-        with col3:
-            if u["username"] != "admin":
-                if st.button("🗑 Remover", key=f"del_user_{u['id']}"):
-                    db_delete_user(u["id"])
-                    st.rerun()
-        st.divider()
-    st.info("""
-    **📖 Niveis de acesso:**
-    - **Visitante Geral:** Visualiza todos os grupos, sem alteracoes.
-    - **Visitante de Grupo:** Visualiza apenas o grupo vinculado, sem alteracoes.
-    - **Admin de Grupo:** Administra um grupo especifico.
-    - **Administrador Geral:** Acesso total ao sistema.
-    """)
-
 def main_app():
     user = st.session_state.user
+    conn = get_db()
 
     with st.sidebar:
         render_marina_logo(max_width="150px", margin_bottom="6px")
@@ -640,21 +669,27 @@ def main_app():
         if imla_turma_param:
             st.session_state["_imla_turma"] = imla_turma_param
             st.session_state["_imla_goto_coletivo"] = True
-            try: st.query_params.clear()
-            except: pass
+            try:
+                st.query_params.clear()
+            except Exception:
+                pass
             st.rerun()
 
-        pagina_idx = 1 if st.session_state.get("_imla_goto_coletivo") else 0
+        if st.session_state.get("_imla_goto_coletivo"):
+            pagina_idx = 1
+        else:
+            pagina_idx = 0
+
         pagina = st.radio("Navegacao", ["📋 Sistema", "📊 Controle Coletivo"], index=pagina_idx)
 
-        grupos = db_get_grupos()
+        grupos = conn.execute("SELECT id, nome FROM grupos").fetchall()
 
         st.markdown("##### 📂 Grupo")
         grupo_names = ["-- Selecione --"] + [g["nome"] for g in grupos]
         grupo_sel_name = st.selectbox("Grupo", grupo_names, label_visibility="collapsed", key="sel_grupo")
         grupo_sel = None
         if grupo_sel_name != "-- Selecione --":
-            grupo_sel = next((g for g in grupos if g["nome"] == grupo_sel_name), None)
+            grupo_sel = next((dict(g) for g in grupos if g["nome"] == grupo_sel_name), None)
 
         if can_write(user) and grupo_sel:
             if st.button("🗑 Remover este Grupo", use_container_width=True, key="btn_remover_grupo", type="primary"):
@@ -665,7 +700,17 @@ def main_app():
                 cc1, cc2 = st.columns(2)
                 with cc1:
                     if st.button("✅ Sim, remover", key="btn_conf_rem_grupo", use_container_width=True):
-                        db_delete_grupo(grupo_sel["id"])
+                        gid = grupo_sel["id"]
+                        turmas_g = conn.execute("SELECT id FROM turmas WHERE grupo_id=?", (gid,)).fetchall()
+                        for tg in turmas_g:
+                            crs = conn.execute("SELECT id FROM criancas WHERE turma_id=?", (tg["id"],)).fetchall()
+                            for cr in crs:
+                                conn.execute("DELETE FROM medicoes WHERE crianca_id=?", (cr["id"],))
+                            conn.execute("DELETE FROM criancas WHERE turma_id=?", (tg["id"],))
+                        conn.execute("DELETE FROM turmas WHERE grupo_id=?", (gid,))
+                        conn.execute("DELETE FROM criancas WHERE grupo_id=?", (gid,))
+                        conn.execute("DELETE FROM grupos WHERE id=?", (gid,))
+                        conn.commit()
                         st.session_state["_confirmar_remover_grupo"] = None
                         st.success("Grupo removido!")
                         st.rerun()
@@ -680,17 +725,18 @@ def main_app():
             if st.button("Criar Grupo", use_container_width=True, key="btn_criar_grupo"):
                 if novo_grupo and novo_grupo.strip():
                     try:
-                        db_create_grupo(novo_grupo.strip())
+                        conn.execute("INSERT INTO grupos (nome) VALUES (?)", (novo_grupo.strip(),))
+                        conn.commit()
                         set_success_message("Grupo criado com sucesso!")
                         st.rerun()
-                    except Exception as e:
-                        st.error(f"Erro: {e}")
+                    except sqlite3.IntegrityError:
+                        st.error("Grupo ja existe!")
 
         turma_sel = None
         criancas = []
         turmas = []
         if grupo_sel:
-            turmas = db_get_turmas(grupo_sel["id"])
+            turmas = conn.execute("SELECT id, nome, grupo_id FROM turmas WHERE grupo_id = ?", (grupo_sel["id"],)).fetchall()
 
     header_parts = ["🍎 NutriMais"]
     if grupo_sel and turma_sel:
@@ -723,6 +769,7 @@ def main_app():
         if st.button("← Voltar ao sistema", key="btn_voltar_sistema_admin"):
             st.session_state.show_users_panel = False
             st.rerun()
+        conn.close()
         admin_panel()
         return
 
@@ -736,6 +783,7 @@ def main_app():
             <h2 style='color:#4A148C;'>Selecione um Grupo</h2>
             <p>Use o menu lateral para selecionar ou criar um grupo.</p>
         </div>""", unsafe_allow_html=True)
+        conn.close()
         return
 
     if grupo_sel and turmas:
@@ -743,18 +791,19 @@ def main_app():
             turma_names_central = ["-- Selecione a Turma --"] + [t["nome"] for t in turmas]
             turma_sel_central = st.selectbox("📋 Selecione a Turma", turma_names_central, key="sel_turma_central")
             if turma_sel_central != "-- Selecione a Turma --":
-                turma_sel = next((t for t in turmas if t["nome"] == turma_sel_central), None)
+                turma_sel = next((dict(t) for t in turmas if t["nome"] == turma_sel_central), None)
         else:
             imla_turma = st.session_state.get("_imla_turma")
             if imla_turma:
-                turma_sel = next((t for t in turmas if t["nome"] == imla_turma), None)
+                turma_sel = next((dict(t) for t in turmas if t["nome"] == imla_turma), None)
     elif grupo_sel and not turmas:
         turma_sel = None
 
     if grupo_sel and turma_sel:
-        criancas = db_get_criancas(turma_sel["id"])
-        for c in criancas:
-            c["medicoes"] = db_get_medicoes(c["id"])
+        criancas_raw = conn.execute(
+            "SELECT id, nome, sexo, data_nascimento, grupo_id, turma_id, comunidade FROM criancas WHERE turma_id = ?",
+            (turma_sel["id"],)).fetchall()
+        criancas = [dict(c) for c in criancas_raw]
 
     if not turma_sel:
         if can_write(user, grupo_sel["nome"] if grupo_sel else None):
@@ -765,17 +814,23 @@ def main_app():
                 nova_turma = st.text_input("Nome da turma", key="nova_turma", placeholder="Nome da turma")
                 if st.button("Criar Turma", use_container_width=True, key="btn_criar_turma"):
                     if nova_turma and nova_turma.strip():
-                        db_create_turma(nova_turma.strip(), grupo_sel["id"])
+                        conn.execute("INSERT INTO turmas (nome, grupo_id) VALUES (?, ?)", (nova_turma.strip(), grupo_sel["id"]))
+                        conn.commit()
                         set_success_message("Turma criada com sucesso!")
                         st.rerun()
                 st.markdown("#### 🗑 Remover Turma")
                 turma_names_rem = ["-- Selecione --"] + [t["nome"] for t in turmas]
                 turma_rem_nome = st.selectbox("Turma para remover", turma_names_rem, key="sel_turma_remover")
                 if turma_rem_nome != "-- Selecione --":
-                    turma_rem = next((t for t in turmas if t["nome"] == turma_rem_nome), None)
+                    turma_rem = next((dict(t) for t in turmas if t["nome"] == turma_rem_nome), None)
                     if turma_rem:
                         if st.button("🗑 Confirmar Remoção da Turma", use_container_width=True, key="btn_remover_turma", type="primary"):
-                            db_delete_turma(turma_rem["id"])
+                            cris = conn.execute("SELECT id FROM criancas WHERE turma_id=?", (turma_rem["id"],)).fetchall()
+                            for cri in cris:
+                                conn.execute("DELETE FROM medicoes WHERE crianca_id=?", (cri["id"],))
+                            conn.execute("DELETE FROM criancas WHERE turma_id=?", (turma_rem["id"],))
+                            conn.execute("DELETE FROM turmas WHERE id=?", (turma_rem["id"],))
+                            conn.commit()
                             st.success(f'Turma "{turma_rem_nome}" removida!')
                             st.rerun()
             with col_c:
@@ -792,7 +847,21 @@ def main_app():
                     <h2 style='color:#4A148C;'>Selecione uma Turma</h2>
                     <p>Use o seletor acima para escolher uma turma em <strong>{grupo_sel['nome']}</strong>.</p>
                 </div>""", unsafe_allow_html=True)
+            else:
+                st.markdown("""
+                <div style='text-align:center; padding:40px 20px; color:#7B1FA2;'>
+                    <div style='font-size:3rem; margin-bottom:16px;'>📋</div>
+                    <h2 style='color:#4A148C;'>Selecione uma Turma</h2>
+                    <p>Clique em um dos botões de turma acima para ver os dados.</p>
+                </div>""", unsafe_allow_html=True)
+        conn.close()
         return
+
+    for c in criancas:
+        meds = conn.execute(
+            "SELECT id, crianca_id, data_medicao, peso, altura FROM medicoes WHERE crianca_id = ?",
+            (c["id"],)).fetchall()
+        c["medicoes"] = [dict(m) for m in meds]
 
     if pagina == "📊 Controle Coletivo":
         st.markdown(f"## 📋 Controle Coletivo — {turma_sel['nome']}")
@@ -828,7 +897,6 @@ def main_app():
                 <th style="padding:10px 8px;text-align:center;">IMC</th>
                 <th style="padding:10px 8px;text-align:center;">Diagnostico Nutricional</th>
             </tr></thead><tbody>"""
-
             for i, c in enumerate(criancas):
                 bg = "#FAF0FF" if i % 2 == 0 else "white"
                 meds = c["medicoes"]
@@ -871,13 +939,13 @@ def main_app():
             components.html(table_html, height=table_height, scrolling=True)
 
         st.markdown("""
-            <div class="disclaimer">
-                <strong>⚠️ Importante:</strong> As classificacoes feitas pelo aplicativo utilizam somente dados antropometricos
-                (Peso, Estatura e IMC), nao levando em consideracao outros parametros que sao necessarios para um diagnostico
-                nutricional completo, como exames bioquimicos, avaliacao dos habitos alimentares e exames clinicos. Por isso,
-                estes resultados nao substituem o diagnostico individualizado feito por um profissional capacitado e habilitado.
-                Essas informacoes sao para fins de conhecimento e rastreamento do perfil nutricional da instituicao.
-            </div>""", unsafe_allow_html=True)
+        <div class="disclaimer">
+            <strong>⚠️ Importante:</strong> As classificações feitas pelo aplicativo utilizam somente dados antropométricos
+            (Peso, Estatura e IMC), não levando em consideração outros parâmetros que são necessários para um diagnóstico
+            nutricional completo, como exames bioquímicos, avaliação dos hábitos alimentares e exames clínicos. Por isso,
+            estes resultados não substituem o diagnóstico individualizado feito por um profissional capacitado e habilitado.
+            Essas informações são para fins de conhecimento e rastreamento do perfil nutricional da instituição.
+        </div>""", unsafe_allow_html=True)
 
     else:
         if not criancas:
@@ -892,9 +960,11 @@ def main_app():
                 if st.button("Cadastrar Criança", use_container_width=True, key="btn_criar_crianca"):
                     if novo_nome and novo_nome.strip():
                         sexo_val = "M" if novo_sexo == "Masculino" else "F"
-                        db_create_crianca(novo_nome.strip(), sexo_val, str(nova_nasc),
-                            grupo_sel["id"], turma_sel["id"],
-                            nova_comunidade.strip() if nova_comunidade else None)
+                        conn.execute(
+                            "INSERT INTO criancas (nome, sexo, data_nascimento, grupo_id, turma_id, comunidade) VALUES (?, ?, ?, ?, ?, ?)",
+                            (novo_nome.strip(), sexo_val, str(nova_nasc), grupo_sel["id"], turma_sel["id"],
+                             nova_comunidade.strip() if nova_comunidade else None))
+                        conn.commit()
                         set_success_message("Aluno cadastrado com sucesso!")
                         st.rerun()
             else:
@@ -915,7 +985,11 @@ def main_app():
                     btn_col1, btn_col2 = st.columns([3, 1])
                     with btn_col2:
                         if st.button("🗑 Remover Criança", key="btn_remover_crianca"):
-                            db_delete_crianca(crianca_sel["id"])
+                            conn2 = get_db()
+                            conn2.execute("DELETE FROM medicoes WHERE crianca_id = ?", (crianca_sel["id"],))
+                            conn2.execute("DELETE FROM criancas WHERE id = ?", (crianca_sel["id"],))
+                            conn2.commit()
+                            conn2.close()
                             st.rerun()
                     with btn_col1:
                         with st.expander("➕ Cadastrar Nova Criança nesta Turma"):
@@ -928,9 +1002,11 @@ def main_app():
                             if st.button("Cadastrar", use_container_width=True, key="btn_criar_crianca2"):
                                 if novo_nome2 and novo_nome2.strip():
                                     sexo_val2 = "M" if novo_sexo2 == "Masculino" else "F"
-                                    db_create_crianca(novo_nome2.strip(), sexo_val2, str(nova_nasc2),
-                                        grupo_sel["id"], turma_sel["id"],
-                                        nova_comunidade2.strip() if nova_comunidade2 else None)
+                                    conn.execute(
+                                        "INSERT INTO criancas (nome, sexo, data_nascimento, grupo_id, turma_id, comunidade) VALUES (?,?,?,?,?,?)",
+                                        (novo_nome2.strip(), sexo_val2, str(nova_nasc2), grupo_sel["id"], turma_sel["id"],
+                                         nova_comunidade2.strip() if nova_comunidade2 else None))
+                                    conn.commit()
                                     set_success_message("Aluno cadastrado com sucesso!")
                                     st.rerun()
 
@@ -950,8 +1026,14 @@ def main_app():
                                 edit_comunidade = st.text_input("Comunidade", value=crianca_sel.get("comunidade") or "")
                             if st.form_submit_button("💾 Salvar Alterações", use_container_width=True):
                                 sexo_edit = "M" if edit_sexo == "Masculino" else "F"
-                                db_update_crianca(crianca_sel["id"], edit_nome.strip(), sexo_edit,
-                                    str(edit_nasc), edit_comunidade.strip() if edit_comunidade else None)
+                                conn2 = get_db()
+                                conn2.execute(
+                                    "UPDATE criancas SET nome=?, sexo=?, data_nascimento=?, comunidade=? WHERE id=?",
+                                    (edit_nome.strip(), sexo_edit, str(edit_nasc),
+                                     edit_comunidade.strip() if edit_comunidade else None,
+                                     crianca_sel["id"]))
+                                conn2.commit()
+                                conn2.close()
                                 st.success("Dados atualizados!")
                                 st.rerun()
 
@@ -1010,20 +1092,28 @@ def main_app():
 
                 if write_enabled:
                     if st.button("💾 Salvar Medições", use_container_width=True, type="primary"):
+                        conn2 = get_db()
                         for med in updated_meds:
                             if med["peso"] > 0 and med["altura"] > 0 and med["data_medicao"]:
-                                db_upsert_medicao(crianca_sel["id"], med["data_medicao"],
-                                    med["peso"], med["altura"], med["id"])
+                                if med["id"]:
+                                    conn2.execute("UPDATE medicoes SET data_medicao=?, peso=?, altura=? WHERE id=?",
+                                                  (med["data_medicao"], med["peso"], med["altura"], med["id"]))
+                                else:
+                                    conn2.execute("INSERT INTO medicoes (crianca_id, data_medicao, peso, altura) VALUES (?,?,?,?)",
+                                                  (crianca_sel["id"], med["data_medicao"], med["peso"], med["altura"]))
+                        conn2.commit()
+                        conn2.close()
                         st.success("Medições salvas com sucesso!")
                         st.rerun()
 
                 valid_meds = []
-                all_meds = db_get_medicoes(crianca_sel["id"])
+                all_meds = conn.execute(
+                    "SELECT data_medicao, peso, altura FROM medicoes WHERE crianca_id=? AND peso>0 AND altura>0",
+                    (crianca_sel["id"],)).fetchall()
                 for m in all_meds:
-                    if m["peso"] > 0 and m["altura"] > 0:
-                        meses = calcular_idade_meses(crianca_sel["data_nascimento"], m["data_medicao"])
-                        imc = round(m["peso"] / pow(m["altura"] / 100, 2) * 100) / 100
-                        valid_meds.append({"meses": meses, "peso": m["peso"], "altura": m["altura"], "imc": imc, "data": m["data_medicao"]})
+                    meses = calcular_idade_meses(crianca_sel["data_nascimento"], m["data_medicao"])
+                    imc = round(m["peso"] / pow(m["altura"] / 100, 2) * 100) / 100
+                    valid_meds.append({"meses": meses, "peso": m["peso"], "altura": m["altura"], "imc": imc, "data": m["data_medicao"]})
 
                 if valid_meds and crianca_sel["sexo"]:
                     st.markdown("### 📊 Curvas de Crescimento OMS")
@@ -1064,6 +1154,8 @@ def main_app():
                         estes resultados não substituem o diagnóstico individualizado feito por um profissional capacitado e habilitado.
                         Essas informações são para fins de conhecimento e rastreamento do perfil nutricional da instituição.
                     </div>""", unsafe_allow_html=True)
+
+    conn.close()
 
 def home_page():
     user = st.session_state.user
