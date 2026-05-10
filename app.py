@@ -103,15 +103,28 @@ def get_gsheets_client():
     """Retorna um client gspread autenticado via secrets do Streamlit."""
     import gspread
     from google.oauth2.service_account import Credentials
+
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive",
     ]
-    info = dict(st.secrets["connections"]["gsheets"])
-    # st.secrets retorna o spreadsheet_url junto; removemos campos não usados pelo Credentials
-    creds_keys = ["type","project_id","private_key_id","private_key","client_email",
-                  "client_id","auth_uri","token_uri","auth_provider_x509_cert_url","client_x509_cert_url"]
-    creds_info = {k: info[k] for k in creds_keys if k in info}
+
+    # st.secrets retorna AttrDict; convertemos para dict Python nativo campo a campo
+    s = st.secrets["connections"]["gsheets"]
+    creds_info = {
+        "type":                        s["type"],
+        "project_id":                  s["project_id"],
+        "private_key_id":              s["private_key_id"],
+        "private_key":                 s["private_key"],
+        "client_email":                s["client_email"],
+        "client_id":                   s["client_id"],
+        "auth_uri":                    s["auth_uri"],
+        "token_uri":                   s["token_uri"],
+        "auth_provider_x509_cert_url": s["auth_provider_x509_cert_url"],
+        "client_x509_cert_url":        s["client_x509_cert_url"],
+        "universe_domain":             s.get("universe_domain", "googleapis.com"),
+    }
+
     creds = Credentials.from_service_account_info(creds_info, scopes=scopes)
     return gspread.authorize(creds)
 
@@ -119,6 +132,8 @@ def get_spreadsheet():
     """Retorna o objeto Spreadsheet do gspread."""
     client = get_gsheets_client()
     url = st.secrets["connections"]["gsheets"]["spreadsheet"]
+    # Remove parâmetros de URL que o gspread não aceita (ex: ?usp=sharing)
+    url = url.split("?")[0].replace("/edit", "")
     return client.open_by_url(url)
 
 def garantir_aba_turma(spreadsheet, nome_turma, incluir_comunidade=False):
