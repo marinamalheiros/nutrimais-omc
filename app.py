@@ -1166,44 +1166,47 @@ def main_app():
                             if is_imla_group(grupo_sel):
                                 edit_comunidade = st.text_input("Comunidade", value=crianca_sel.get("comunidade") or "")
 if st.form_submit_button("💾 Salvar Alterações", use_container_width=True):
-            sexo_edit = "M" if edit_sexo == "Masculino" else "F"
-            
-            dados_para_planilha = {
-                "nome": edit_nome.strip(),
-                "sexo": sexo_edit,
-                "nascimento": str(edit_nasc),
-                "comunidade": edit_comunidade.strip() if edit_comunidade else "",
-                "turma": turma_sel['nome'],
-                "data_1": str(st.session_state.get('med_data_0', date.today())),
-                "peso_1": st.session_state.get('med_peso_0', 0.0),
-                "alt_1": st.session_state.get('med_alt_0', 0.0),
-                "data_2": str(st.session_state.get('med_data_1', date.today())),
-                "peso_2": st.session_state.get('med_peso_1', 0.0),
-                "alt_2": st.session_state.get('med_alt_1', 0.0),
-                "data_3": str(st.session_state.get('med_data_2', date.today())),
-                "peso_3": st.session_state.get('med_peso_2', 0.0),
-                "alt_3": st.session_state.get('med_alt_2', 0.0),
-                "data_4": str(st.session_state.get('med_data_3', date.today())),
-                "peso_4": st.session_state.get('med_peso_3', 0.0),
-                "alt_4": st.session_state.get('med_alt_3', 0.0),
-            }
+                    # 1. Preparar os dados
+                    sexo_edit = "M" if edit_sexo == "Masculino" else "F"
+                    
+                    dados_para_planilha = {
+                        "nome": edit_nome.strip(),
+                        "sexo": sexo_edit,
+                        "nascimento": str(edit_nasc),
+                        "comunidade": edit_comunidade.strip() if edit_comunidade else "",
+                        "turma": turma_sel['nome'],
+                        "data_1": str(st.session_state.get('med_data_0', date.today())),
+                        "peso_1": st.session_state.get('med_peso_0', 0.0),
+                        "alt_1": st.session_state.get('med_alt_0', 0.0),
+                        "data_2": str(st.session_state.get('med_data_1', date.today())),
+                        "peso_2": st.session_state.get('med_peso_1', 0.0),
+                        "alt_2": st.session_state.get('med_alt_1', 0.0),
+                        "data_3": str(st.session_state.get('med_data_2', date.today())),
+                        "peso_3": st.session_state.get('med_peso_2', 0.0),
+                        "alt_3": st.session_state.get('med_alt_2', 0.0),
+                        "data_4": str(st.session_state.get('med_data_3', date.today())),
+                        "peso_4": st.session_state.get('med_peso_3', 0.0),
+                        "alt_4": st.session_state.get('med_alt_3', 0.0),
+                    }
 
-            try:
-                salvar_dados_nutrimais(dados_para_planilha, grupo_sel['nome'])
-                st.rerun()
-            except Exception as e:
-                st.error(f"Erro ao salvar: {e}")
+                    try:
+                        salvar_dados_nutrimais(dados_para_planilha, grupo_sel['nome'])
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro ao salvar: {e}")
 
-    # AQUI ESTÁ O SEGREDO: Alinhado com o 'with st.expander' ou 'if crianca_sel'
-    st.markdown(f"## 📋 Ficha: {crianca_sel['nome']}")
-    sexo_label = "Masculino" if crianca_sel["sexo"] == "M" else "Feminino"
-    ficha_info = (f"**Sexo:** {sexo_label} | **Data de Nascimento:** {format_date_br(crianca_sel['data_nascimento'])} | "
-                  f"**Grupo:** {grupo_sel['nome']} | **Turma:** {turma_sel['nome']}")
-    
-    if is_imla_group(grupo_sel) and crianca_sel.get("comunidade"):
-        ficha_info += f" | **Comunidade:** {crianca_sel['comunidade']}"
-    
-    st.markdown(ficha_info)
+                # --- FIM DO BLOCO DE SALVAR ---
+                # Agora o código abaixo volta um nível para aparecer sempre na tela:
+
+                st.markdown(f"## 📋 Ficha: {crianca_sel['nome']}")
+                sexo_label = "Masculino" if crianca_sel["sexo"] == "M" else "Feminino"
+                ficha_info = (f"**Sexo:** {sexo_label} | **Data de Nascimento:** {format_date_br(crianca_sel['data_nascimento'])} | "
+                              f"**Grupo:** {grupo_sel['nome']} | **Turma:** {turma_sel['nome']}")
+                
+                if is_imla_group(grupo_sel) and crianca_sel.get("comunidade"):
+                    ficha_info += f" | **Comunidade:** {crianca_sel['comunidade']}"
+                
+                st.markdown(ficha_info)
                                 st.markdown("### 📅 Medições")
                                 meds = crianca_sel["medicoes"]
                                 num_slots = max(4, len(meds))
