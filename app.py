@@ -209,7 +209,111 @@ def sinc_crianca_gsheets(nome_turma, nome_grupo, crianca_dict, medicoes_list):
             ws.append_row(linha, value_input_option='USER_ENTERED')
 
     except Exception as e:
+        # Registra falha no log persistente da sessão
+        if "_sinc_errors" not in st.session_state:
+            st.session_state["_sinc_errors"] = []
+        nome_crianca = crianca_dict.get("nome", "?")
+        timestamp = datetime.now().strftime("%d/%m/%Y %H:%M")
+        st.session_state["_sinc_errors"].append(
+            f"[{timestamp}] {nome_turma} › {nome_crianca}: {e}"
+        )
         st.warning(f"⚠️ Dados salvos localmente, mas erro ao sincronizar com Google Sheets: {e}")
+
+def sinc_tudo_gsheets():
+    """
+    Sincroniza TODOS os dados do SQLite com o Google Sheets de uma vez.
+    Percorre todos os grupos → turmas → crianças → medições.
+    Retorna (total_ok, erros[]) onde erros é lista de strings descritivas.
+    """
+    conn = get_db()
+    grupos = conn.execute("SELECT id, nome FROM grupos").fetchall()
+    total_ok = 0
+    erros = []
+
+    try:
+        spreadsheet = get_spreadsheet()
+    except Exception as e:
+        conn.close()
+        return 0, [f"Falha ao conectar ao Google Sheets: {e}"]
+
+    for grupo in grupos:
+        turmas = conn.execute(
+            "SELECT id, nome FROM turmas WHERE grupo_id = ?", (grupo["id"],)
+        ).fetchall()
+        incluir_comunidade = (grupo["nome"] == "Instituto Mãe Lalu")
+
+        for turma in turmas:
+            # Garante que a aba existe
+            try:
+                ws = garantir_aba_turma(spreadsheet, turma["nome"], incluir_comunidade)
+            except Exception as e:
+                erros.append(f"Aba '{turma['nome']}': {e}")
+                continue
+
+            criancas = conn.execute(
+                "SELECT id, nome, sexo, data_nascimento, comunidade FROM criancas WHERE turma_id = ?",
+                (turma["id"],),
+            ).fetchall()
+
+            for crianca in criancas:
+                meds_raw = conn.execute(
+                    "SELECT data_medicao, peso, altura FROM medicoes "
+                    "WHERE crianca_id = ? AND peso > 0 AND altura > 0 "
+                    "ORDER BY data_medicao ASC",
+                    (crianca["id"],),
+                ).fetchall()
+                medicoes_list = [dict(m) for m in meds_raw]
+                crianca_dict = {
+                    "nome": crianca["nome"],
+                    "sexo": crianca["sexo"],
+                    "data_nascimento": str(crianca["data_nascimento"]),
+                    "comunidade": crianca["comunidade"] or "",
+                }
+
+                try:
+                    dados = ws.get_all_values()
+                    if not dados:
+                        continue
+                    rows = dados[1:]
+                    linha = [
+                        crianca_dict["nome"],
+                        crianca_dict["sexo"],
+                        crianca_dict["data_nascimento"],
+                    ]
+                    if incluir_comunidade:
+                        linha.append(crianca_dict["comunidade"])
+                    for i in range(4):
+                        if i < len(medicoes_list):
+                            m = medicoes_list[i]
+                            linha.extend([
+                                str(m.get("data_medicao", "")),
+                                str(m.get("peso", "")),
+                                str(m.get("altura", "")),
+                            ])
+                        else:
+                            linha.extend(["", "", ""])
+
+                    nome_lower = crianca_dict["nome"].strip().lower()
+                    row_idx = None
+                    for i, row in enumerate(rows):
+                        if row and row[0].strip().lower() == nome_lower:
+                            row_idx = i + 2
+                            break
+
+                    if row_idx:
+                        ws.update(f"A{row_idx}", [linha], value_input_option="USER_ENTERED")
+                    else:
+                        ws.append_row(linha, value_input_option="USER_ENTERED")
+
+                    total_ok += 1
+                except Exception as e:
+                    erros.append(
+                        f"{grupo['nome']} › {turma['nome']} › {crianca['nome']}: {e}"
+                    )
+
+    conn.close()
+    return total_ok, erros
+
 
 def set_success_message(message):
     st.session_state["_success_message"] = message
@@ -622,6 +726,45 @@ def admin_panel():
                     conn.close()
                     st.rerun()
         st.divider()
+    st.divider()
+    st.markdown("## 🔄 Backup — Sincronização com Google Sheets")
+    st.markdown(
+        "Use o botão abaixo para forçar a sincronização **completa** de todos os dados "
+        "do banco local com o Google Sheets. Útil após um reboot ou quando a sincronização "
+        "automática falhou."
+    )
+
+    col_sinc, col_clear = st.columns([3, 1])
+    with col_sinc:
+        if st.button("☁️ Sincronizar TUDO com Google Sheets", use_container_width=True, type="primary"):
+            with st.spinner("Sincronizando… isso pode levar alguns segundos."):
+                ok, erros = sinc_tudo_gsheets()
+            if not erros:
+                st.success(f"✅ {ok} crianças sincronizadas com sucesso!")
+                # Limpa log de erros antigos se tudo deu certo
+                st.session_state["_sinc_errors"] = []
+            else:
+                st.warning(f"⚠️ {ok} sincronizadas, mas {len(erros)} erro(s) encontrado(s):")
+                for err in erros:
+                    st.error(err)
+
+    # Painel de log de erros de sincronização acumulados na sessão
+    erros_sessao = st.session_state.get("_sinc_errors", [])
+    with col_clear:
+        if erros_sessao:
+            if st.button("🗑 Limpar log", use_container_width=True):
+                st.session_state["_sinc_errors"] = []
+                st.rerun()
+
+    if erros_sessao:
+        with st.expander(f"🔴 Log de falhas de sincronização ({len(erros_sessao)} erro(s))", expanded=True):
+            st.caption("Estes dados foram **salvos localmente** mas não chegaram ao Google Sheets. Use o botão acima para reenviar.")
+            for err in erros_sessao:
+                st.markdown(f"- `{err}`")
+    else:
+        st.success("✅ Nenhuma falha de sincronização registrada nesta sessão.")
+
+    st.divider()
     st.info("""
     **📖 Niveis de acesso:**
     - **Visitante Geral:** Visualiza todos os grupos, sem alteracoes.
