@@ -1198,7 +1198,7 @@ if st.form_submit_button("💾 Salvar Alterações", use_container_width=True):
                 # --- FIM DO BLOCO DE SALVAR ---
                 # Agora o código abaixo volta um nível para aparecer sempre na tela:
 
-                st.markdown(f"## 📋 Ficha: {crianca_sel['nome']}")
+            st.markdown(f"## 📋 Ficha: {crianca_sel['nome']}")
                 sexo_label = "Masculino" if crianca_sel["sexo"] == "M" else "Feminino"
                 ficha_info = (f"**Sexo:** {sexo_label} | **Data de Nascimento:** {format_date_br(crianca_sel['data_nascimento'])} | "
                               f"**Grupo:** {grupo_sel['nome']} | **Turma:** {turma_sel['nome']}")
