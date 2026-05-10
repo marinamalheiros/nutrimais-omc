@@ -709,71 +709,6 @@ def render_growth_chart(sexo, tipo, medicoes_data, titulo, eixo_x_campo, eixo_y_
             unsafe_allow_html=True)
     return fig
 
-def render_growth_chart(sexo, tipo, medicoes_data, titulo, eixo_x_campo, eixo_y_campo, label_x, label_y):
-    # O restante da sua função permanece igual...
-    try:
-        import plotly.graph_objects as go
-    except ImportError:
-        st.warning("Plotly nao instalado. Execute: pip install plotly")
-        return
-    ref = get_ref(sexo, tipo)
-    if not ref:
-        st.warning(f"Referencia OMS nao disponivel para {titulo}")
-        return
-    pontos = []
-    for m in medicoes_data:
-        vx = m["altura"] if eixo_x_campo == "altura" else m["meses"]
-        vy = m["peso"] if eixo_y_campo == "peso" else (m["altura"] if eixo_y_campo == "altura" else m["imc"])
-        if vx and vy and vx > 0 and vy > 0:
-            pontos.append({"vx": vx, "vy": vy, "data": m.get("data", "")})
-    if not pontos:
-        return
-    vx_vals = [p["vx"] for p in pontos]
-    vx_min, vx_max = min(vx_vals), max(vx_vals)
-    margem = max((vx_max - vx_min) * 0.5, 10)
-    x_min = max(0, vx_min - margem)
-    x_max = vx_max + margem
-    eixo = ref.get("meses") if eixo_x_campo != "altura" else ref.get("altura")
-    if not eixo:
-        return
-    filtered_eixo = [x for x in eixo if x >= x_min and x <= x_max]
-    if not filtered_eixo:
-        return
-    z_keys = ["z-3","z-2","z-1","z0","z1","z2","z3"]
-    z_colors = {"z3":"#DC143C","z2":"#FF8C00","z1":"#4682B4","z0":"#2E8B57","z-1":"#4682B4","z-2":"#FF8C00","z-3":"#DC143C"}
-    z_labels = {"z3":"+3","z2":"+2","z1":"+1","z0":"Mediana","z-1":"-1","z-2":"-2","z-3":"-3"}
-    z_dash = {"z3":"dot","z2":"dash","z1":"dash","z0":"solid","z-1":"dash","z-2":"dash","z-3":"dot"}
-    fig = go.Figure()
-    for zk in z_keys:
-        z_arr = ref[zk]
-        y_vals = [z_arr[eixo.index(x)] if x in eixo else None for x in filtered_eixo]
-        fig.add_trace(go.Scatter(x=filtered_eixo, y=y_vals, mode="lines", name=z_labels[zk],
-            line=dict(color=z_colors[zk], width=2 if zk=="z0" else 1, dash=z_dash[zk])))
-    fig.add_trace(go.Scatter(
-        x=[p["vx"] for p in pontos], y=[p["vy"] for p in pontos],
-        mode="markers+lines", name="Medicoes",
-        marker=dict(size=10, color="#7B1FA2", symbol="circle"),
-        line=dict(color="#7B1FA2", width=2),
-        text=[f"Data: {format_date_br(p['data'])}" for p in pontos]))
-    fig.update_layout(
-        title=dict(text=titulo, font=dict(color="#1565C0" if sexo=="M" else "#AD1457", size=16)),
-        xaxis_title=label_x, yaxis_title=label_y, height=420,
-        template="plotly_white", legend=dict(font=dict(size=10)),
-        margin=dict(l=60, r=20, t=50, b=60))
-    st.plotly_chart(fig, use_container_width=True)
-    tipo_eixo = "altura" if eixo_x_campo == "altura" else "meses"
-    for i, p in enumerate(pontos):
-        limites = obter_limites(ref, p["vx"], tipo_eixo)
-        meses_val = p["vx"] if eixo_x_campo != "altura" else 0
-        status, cor = classificar_nutricional(p["vy"], limites, tipo, meses_val)
-        cor_txt = "#333" if cor == "#FFD700" else "white"
-        st.markdown(
-            f'<span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:{cor};margin-right:6px;"></span>'
-            f'<span style="font-size:0.85rem;color:#555;">Medicao {i+1} ({p["vx"]:.1f} {"cm" if eixo_x_campo=="altura" else "meses"}, {p["vy"]:.1f}):</span> '
-            f'<span style="background:{cor};color:{cor_txt};padding:3px 10px;border-radius:6px;font-weight:bold;font-size:0.82rem;">{status}</span>',
-            unsafe_allow_html=True)
-    return fig
-
 def main_app():
     user = st.session_state.user
     conn = get_db()
@@ -994,7 +929,7 @@ def main_app():
             (c["id"],)).fetchall()
         c["medicoes"] = [dict(m) for m in meds]
 
-       # --- ABA: CONTROLE COLETIVO ---
+    # --- ABA: CONTROLE COLETIVO ---
     if pagina == "📊 Controle Coletivo":
         st.markdown(f"## 📋 Controle Coletivo — {turma_sel['nome']}")
         st.markdown(f"**Grupo:** {grupo_sel['nome']} | **Turma:** {turma_sel['nome']} | **Total:** {len(criancas)} crianças")
@@ -1165,10 +1100,10 @@ def main_app():
                             edit_comunidade = None
                             if is_imla_group(grupo_sel):
                                 edit_comunidade = st.text_input("Comunidade", value=crianca_sel.get("comunidade") or "")
-if st.form_submit_button("💾 Salvar Alterações", use_container_width=True):
+                            if st.form_submit_button("💾 Salvar Alterações", use_container_width=True):
                                 # 1. Preparar os dados
                                 sexo_edit = "M" if edit_sexo == "Masculino" else "F"
-                                
+
                                 dados_para_planilha = {
                                     "nome": edit_nome.strip(),
                                     "sexo": sexo_edit,
