@@ -95,6 +95,11 @@ TURMAS_POR_GRUPO = {
 }
 
 def get_db():
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def get_gsheets():
     try:
         return st.connection("gsheets", type=GSheetsConnection)
     except Exception as e:
@@ -102,7 +107,7 @@ def get_db():
         return None
 
 def salvar_dados_nutrimais(dados_ficha, nome_grupo):
-    conn = get_db()
+    conn = get_gsheets()
     nome_turma = dados_ficha['turma']
     incluir_comunidade = (nome_grupo == "Instituto Mãe Lalu")
     
