@@ -3,3 +3,4 @@ numpy
 plotly
 supabase==2.10.0
 pip install st-gsheets-connection
+gspread
