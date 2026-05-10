@@ -1207,14 +1207,17 @@ if st.form_submit_button("💾 Salvar Alterações", use_container_width=True):
         st.rerun()
     except Exception as e:
         st.error(f"Erro ao salvar na planilha: {e}")
-                st.markdown(f"## 📋 Ficha: {crianca_sel['nome']}")
-                sexo_label = "Masculino" if crianca_sel["sexo"] == "M" else "Feminino"
-                ficha_info = (f"**Sexo:** {sexo_label} | **Data de Nascimento:** {format_date_br(crianca_sel['data_nascimento'])} | "
-                              f"**Grupo:** {grupo_sel['nome']} | **Turma:** {turma_sel['nome']}")
-                if is_imla_group(grupo_sel) and crianca_sel.get("comunidade"):
-                    ficha_info += f" | **Comunidade:** {crianca_sel['comunidade']}"
-                st.markdown(ficha_info)
 
+# SAIA DO BLOCO DO FORMULÁRIO (Ajuste o alinhamento aqui):
+st.markdown(f"## 📋 Ficha: {crianca_sel['nome']}")
+sexo_label = "Masculino" if crianca_sel["sexo"] == "M" else "Feminino"
+ficha_info = (f"**Sexo:** {sexo_label} | **Data de Nascimento:** {format_date_br(crianca_sel['data_nascimento'])} | "
+              f"**Grupo:** {grupo_sel['nome']} | **Turma:** {turma_sel['nome']}")
+
+if is_imla_group(grupo_sel) and crianca_sel.get("comunidade"):
+    ficha_info += f" | **Comunidade:** {crianca_sel['comunidade']}"
+
+st.markdown(ficha_info)
                 st.markdown("### 📅 Medições")
                 meds = crianca_sel["medicoes"]
                 num_slots = max(4, len(meds))
