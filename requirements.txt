@@ -2,5 +2,5 @@ streamlit
 numpy
 plotly
 supabase==2.10.0
-pip install st-gsheets-connection
+st-gsheets-connection
 gspread
