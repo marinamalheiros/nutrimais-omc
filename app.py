@@ -99,49 +99,102 @@ def get_db():
     conn.row_factory = sqlite3.Row
     return conn
 
-def get_gsheets():
-    try:
-        return st.connection("gsheets", type=GSheetsConnection)
-    except Exception as e:
-        st.error(f"Erro ao conectar com o Google Sheets: {e}")
-        return None
+def get_gsheets_client():
+    """Retorna um client gspread autenticado via secrets do Streamlit."""
+    import gspread
+    from google.oauth2.service_account import Credentials
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive",
+    ]
+    info = dict(st.secrets["connections"]["gsheets"])
+    # st.secrets retorna o spreadsheet_url junto; removemos campos não usados pelo Credentials
+    creds_keys = ["type","project_id","private_key_id","private_key","client_email",
+                  "client_id","auth_uri","token_uri","auth_provider_x509_cert_url","client_x509_cert_url"]
+    creds_info = {k: info[k] for k in creds_keys if k in info}
+    creds = Credentials.from_service_account_info(creds_info, scopes=scopes)
+    return gspread.authorize(creds)
 
-def salvar_dados_nutrimais(dados_ficha, nome_grupo):
-    conn = get_gsheets()
-    nome_turma = dados_ficha['turma']
-    incluir_comunidade = (nome_grupo == "Instituto Mãe Lalu")
-    
+def get_spreadsheet():
+    """Retorna o objeto Spreadsheet do gspread."""
+    client = get_gsheets_client()
+    url = st.secrets["connections"]["gsheets"]["spreadsheet"]
+    return client.open_by_url(url)
+
+def garantir_aba_turma(spreadsheet, nome_turma, incluir_comunidade=False):
+    """Cria a aba da turma na planilha se ela ainda não existir. Retorna a worksheet."""
+    import gspread
     try:
-        df = conn.read(worksheet=nome_turma)
-        df = df.dropna(how='all', axis=1).dropna(how='all', axis=0)
-    except:
-        # Cria aba nova se não existir com as colunas horizontais
+        ws = spreadsheet.worksheet(nome_turma)
+    except gspread.exceptions.WorksheetNotFound:
+        ws = spreadsheet.add_worksheet(title=nome_turma, rows=200, cols=20)
+        # Cabeçalho
         cols = ['Nome', 'Sexo', 'Nascimento']
-        if incluir_comunidade: cols.append('Comunidade')
+        if incluir_comunidade:
+            cols.append('Comunidade')
         for i in range(1, 5):
             cols.extend([f'Data {i}', f'Peso {i}', f'Alt {i}'])
-        df = pd.DataFrame(columns=cols)
+        ws.append_row(cols, value_input_option='USER_ENTERED')
+    return ws
 
-    nome_c = dados_ficha['nome']
-    if not df.empty and nome_c in df['Nome'].values:
-        idx = df[df['Nome'] == nome_c].index[0]
-        # Atualiza a linha existente (preenche as colunas 1, 2, 3 ou 4)
-        for i in range(1, 5):
-            df.at[idx, f'Data {i}'] = dados_ficha[f'data_{i}']
-            df.at[idx, f'Peso {i}'] = dados_ficha[f'peso_{i}']
-            df.at[idx, f'Alt {i}'] = dados_ficha[f'alt_{i}']
-    else:
-        # Nova criança
-        nova_linha = {'Nome': nome_c, 'Sexo': dados_ficha['sexo'], 'Nascimento': dados_ficha['nascimento']}
-        if incluir_comunidade: nova_linha['Comunidade'] = dados_ficha.get('comunidade', '')
-        for i in range(1, 5):
-            nova_linha[f'Data {i}'] = dados_ficha[f'data_{i}']
-            nova_linha[f'Peso {i}'] = dados_ficha[f'peso_{i}']
-            nova_linha[f'Alt {i}'] = dados_ficha[f'alt_{i}']
-        df = pd.concat([df, pd.DataFrame([nova_linha])], ignore_index=True)
+def sinc_crianca_gsheets(nome_turma, nome_grupo, crianca_dict, medicoes_list):
+    """
+    Sincroniza os dados de uma criança (e suas medições) na aba da planilha.
+    Cria a aba se não existir. Insere ou atualiza a linha da criança.
+    
+    crianca_dict: {'nome', 'sexo', 'data_nascimento', 'comunidade'}
+    medicoes_list: lista de dicts {'data_medicao', 'peso', 'altura'} ordenada por data
+    """
+    try:
+        spreadsheet = get_spreadsheet()
+        incluir_comunidade = (nome_grupo == "Instituto Mãe Lalu")
+        ws = garantir_aba_turma(spreadsheet, nome_turma, incluir_comunidade)
 
-    conn.update(worksheet=nome_turma, data=df)
-    st.success(f"Ficha de {nome_c} salva com sucesso!")
+        # Lê todos os dados atuais
+        dados = ws.get_all_values()
+        if not dados:
+            return
+        header = dados[0]
+        rows = dados[1:]
+
+        # Monta a linha a salvar
+        linha = [
+            crianca_dict.get('nome', ''),
+            crianca_dict.get('sexo', ''),
+            crianca_dict.get('data_nascimento', ''),
+        ]
+        if incluir_comunidade:
+            linha.append(crianca_dict.get('comunidade', '') or '')
+
+        # Até 4 medições
+        for i in range(4):
+            if i < len(medicoes_list):
+                m = medicoes_list[i]
+                linha.extend([
+                    str(m.get('data_medicao', '')),
+                    str(m.get('peso', '')),
+                    str(m.get('altura', '')),
+                ])
+            else:
+                linha.extend(['', '', ''])
+
+        # Verifica se a criança já tem linha
+        nome_crianca = crianca_dict.get('nome', '').strip().lower()
+        row_idx = None
+        for i, row in enumerate(rows):
+            if row and row[0].strip().lower() == nome_crianca:
+                row_idx = i + 2  # +1 pelo header, +1 porque gspread é 1-indexed
+                break
+
+        if row_idx:
+            # Atualiza linha existente
+            ws.update(f'A{row_idx}', [linha], value_input_option='USER_ENTERED')
+        else:
+            # Adiciona nova linha
+            ws.append_row(linha, value_input_option='USER_ENTERED')
+
+    except Exception as e:
+        st.warning(f"⚠️ Dados salvos localmente, mas erro ao sincronizar com Google Sheets: {e}")
 
 def set_success_message(message):
     st.session_state["_success_message"] = message
@@ -887,6 +940,13 @@ def main_app():
                     if nova_turma and nova_turma.strip():
                         conn.execute("INSERT INTO turmas (nome, grupo_id) VALUES (?, ?)", (nova_turma.strip(), grupo_sel["id"]))
                         conn.commit()
+                        # Cria a aba correspondente na planilha Google Sheets
+                        try:
+                            spreadsheet = get_spreadsheet()
+                            incluir_com = (grupo_sel["nome"] == "Instituto Mãe Lalu")
+                            garantir_aba_turma(spreadsheet, nova_turma.strip(), incluir_com)
+                        except Exception as e:
+                            st.warning(f"⚠️ Turma criada localmente, mas erro ao criar aba na planilha: {e}")
                         set_success_message("Turma criada com sucesso!")
                         st.rerun()
                 st.markdown("#### 🗑 Remover Turma")
@@ -1045,6 +1105,14 @@ def main_app():
                             (novo_nome.strip(), sexo_val, str(nova_nasc), grupo_sel["id"], turma_sel["id"],
                              nova_comunidade.strip() if nova_comunidade else None))
                         conn.commit()
+                        # Sincroniza com Google Sheets
+                        sinc_crianca_gsheets(
+                            nome_turma=turma_sel["nome"],
+                            nome_grupo=grupo_sel["nome"],
+                            crianca_dict={"nome": novo_nome.strip(), "sexo": sexo_val,
+                                          "data_nascimento": str(nova_nasc),
+                                          "comunidade": nova_comunidade.strip() if nova_comunidade else ""},
+                            medicoes_list=[])
                         set_success_message("Aluno cadastrado com sucesso!")
                         st.rerun()
             else:
@@ -1088,6 +1156,14 @@ def main_app():
                                         (novo_nome2.strip(), sexo_val2, str(nova_nasc2), grupo_sel["id"], turma_sel["id"],
                                          nova_comunidade2.strip() if nova_comunidade2 else None))
                                     conn.commit()
+                                    # Sincroniza com Google Sheets
+                                    sinc_crianca_gsheets(
+                                        nome_turma=turma_sel["nome"],
+                                        nome_grupo=grupo_sel["nome"],
+                                        crianca_dict={"nome": novo_nome2.strip(), "sexo": sexo_val2,
+                                                      "data_nascimento": str(nova_nasc2),
+                                                      "comunidade": nova_comunidade2.strip() if nova_comunidade2 else ""},
+                                        medicoes_list=[])
                                     set_success_message("Aluno cadastrado com sucesso!")
                                     st.rerun()
 
@@ -1129,11 +1205,27 @@ def main_app():
                                     "alt_4": st.session_state.get('med_alt_3', 0.0),
                                 }
 
-                                try:
-                                    salvar_dados_nutrimais(dados_para_planilha, grupo_sel['nome'])
-                                    st.rerun()
-                                except Exception as e:
-                                    st.error(f"Erro ao salvar: {e}")
+                                # Atualiza dados da criança no SQLite
+                                sexo_db = "M" if edit_sexo == "Masculino" else "F"
+                                conn.execute(
+                                    "UPDATE criancas SET nome=?, sexo=?, data_nascimento=?, comunidade=? WHERE id=?",
+                                    (edit_nome.strip(), sexo_db, str(edit_nasc),
+                                     edit_comunidade.strip() if edit_comunidade else None,
+                                     crianca_sel["id"]))
+                                conn.commit()
+                                # Sincroniza com Google Sheets
+                                meds_db = conn.execute(
+                                    "SELECT data_medicao, peso, altura FROM medicoes WHERE crianca_id=? AND peso>0 AND altura>0 ORDER BY data_medicao",
+                                    (crianca_sel["id"],)).fetchall()
+                                sinc_crianca_gsheets(
+                                    nome_turma=turma_sel["nome"],
+                                    nome_grupo=grupo_sel["nome"],
+                                    crianca_dict={"nome": edit_nome.strip(), "sexo": sexo_db,
+                                                  "data_nascimento": str(edit_nasc),
+                                                  "comunidade": edit_comunidade.strip() if edit_comunidade else ""},
+                                    medicoes_list=[dict(m) for m in meds_db])
+                                st.success("Alterações salvas com sucesso!")
+                                st.rerun()
 
                 # --- EXIBIÇÃO DA FICHA ---
                 # Estas linhas devem estar alinhadas com o 'if write_enabled' acima
@@ -1205,6 +1297,15 @@ def main_app():
                                                   (crianca_sel["id"], med["data_medicao"], med["peso"], med["altura"]))
                         conn2.commit()
                         conn2.close()
+                        # Sincroniza medições com Google Sheets
+                        meds_validas = [m for m in updated_meds if m["peso"] > 0 and m["altura"] > 0]
+                        sinc_crianca_gsheets(
+                            nome_turma=turma_sel["nome"],
+                            nome_grupo=grupo_sel["nome"],
+                            crianca_dict={"nome": crianca_sel["nome"], "sexo": crianca_sel["sexo"],
+                                          "data_nascimento": crianca_sel["data_nascimento"],
+                                          "comunidade": crianca_sel.get("comunidade", "") or ""},
+                            medicoes_list=meds_validas)
                         st.success("Medições salvas com sucesso!")
                         st.rerun()
 
