@@ -6,6 +6,8 @@ import math
 import os
 import json
 import base64
+import pandas as pd
+from streamlit_gsheets import GSheetsConnection
 from urllib.parse import quote
 from datetime import datetime, date
 
@@ -81,12 +83,60 @@ IMLA_TURMA_COLORS = {
     "Turma Azul": "#5cc6d0",
     "Turma Cirandando pelo Mundo": "#6741d9",
 }
+TURMAS_POR_GRUPO = {
+    "OMC": [
+        "Maternalzinho", "Maternal I", "Maternal II A", 
+        "Maternal II B", "Jardim I A", "Jardim I B", "Jardim II"
+    ],
+    "Instituto Mãe Lalu": [
+        "Turma Rosa", "Turma Amarela", "Turma Verde", 
+        "Turma Azul", "Turma Laranja"
+    ]
+}
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    return conn
+    try:
+        return st.connection("gsheets", type=GSheetsConnection)
+    except Exception as e:
+        st.error(f"Erro ao conectar com o Google Sheets: {e}")
+        return None
+
+def salvar_dados_nutrimais(dados_ficha, nome_grupo):
+    conn = get_db()
+    nome_turma = dados_ficha['turma']
+    incluir_comunidade = (nome_grupo == "Instituto Mãe Lalu")
+    
+    try:
+        df = conn.read(worksheet=nome_turma)
+        df = df.dropna(how='all', axis=1).dropna(how='all', axis=0)
+    except:
+        # Cria aba nova se não existir com as colunas horizontais
+        cols = ['Nome', 'Sexo', 'Nascimento']
+        if incluir_comunidade: cols.append('Comunidade')
+        for i in range(1, 5):
+            cols.extend([f'Data {i}', f'Peso {i}', f'Alt {i}'])
+        df = pd.DataFrame(columns=cols)
+
+    nome_c = dados_ficha['nome']
+    if not df.empty and nome_c in df['Nome'].values:
+        idx = df[df['Nome'] == nome_c].index[0]
+        # Atualiza a linha existente (preenche as colunas 1, 2, 3 ou 4)
+        for i in range(1, 5):
+            df.at[idx, f'Data {i}'] = dados_ficha[f'data_{i}']
+            df.at[idx, f'Peso {i}'] = dados_ficha[f'peso_{i}']
+            df.at[idx, f'Alt {i}'] = dados_ficha[f'alt_{i}']
+    else:
+        # Nova criança
+        nova_linha = {'Nome': nome_c, 'Sexo': dados_ficha['sexo'], 'Nascimento': dados_ficha['nascimento']}
+        if incluir_comunidade: nova_linha['Comunidade'] = dados_ficha.get('comunidade', '')
+        for i in range(1, 5):
+            nova_linha[f'Data {i}'] = dados_ficha[f'data_{i}']
+            nova_linha[f'Peso {i}'] = dados_ficha[f'peso_{i}']
+            nova_linha[f'Alt {i}'] = dados_ficha[f'alt_{i}']
+        df = pd.concat([df, pd.DataFrame([nova_linha])], ignore_index=True)
+
+    conn.update(worksheet=nome_turma, data=df)
+    st.success(f"Ficha de {nome_c} salva com sucesso!")
 
 def set_success_message(message):
     st.session_state["_success_message"] = message
@@ -1115,18 +1165,48 @@ def main_app():
                             edit_comunidade = None
                             if is_imla_group(grupo_sel):
                                 edit_comunidade = st.text_input("Comunidade", value=crianca_sel.get("comunidade") or "")
-                            if st.form_submit_button("💾 Salvar Alterações", use_container_width=True):
-                                sexo_edit = "M" if edit_sexo == "Masculino" else "F"
-                                conn2 = get_db()
-                                conn2.execute(
-                                    "UPDATE criancas SET nome=?, sexo=?, data_nascimento=?, comunidade=? WHERE id=?",
-                                    (edit_nome.strip(), sexo_edit, str(edit_nasc),
-                                     edit_comunidade.strip() if edit_comunidade else None,
-                                     crianca_sel["id"]))
-                                conn2.commit()
-                                conn2.close()
-                                st.success("Dados atualizados!")
-                                st.rerun()
+if st.form_submit_button("💾 Salvar Alterações", use_container_width=True):
+    # 1. Preparar os dados básicos
+    sexo_edit = "M" if edit_sexo == "Masculino" else "F"
+    
+    # 2. Montar o dicionário com as 4 medições que estão na tela
+    # Note que pegamos os valores das chaves 'med_peso_0', 'med_alt_0', etc.
+    dados_para_planilha = {
+        "nome": edit_nome.strip(),
+        "sexo": sexo_edit,
+        "nascimento": str(edit_nasc),
+        "comunidade": edit_comunidade.strip() if edit_comunidade else "",
+        "turma": turma_sel['nome'],
+        
+        # Medição 1
+        "data_1": str(st.session_state.get('med_data_0', date.today())),
+        "peso_1": st.session_state.get('med_peso_0', 0.0),
+        "alt_1": st.session_state.get('med_alt_0', 0.0),
+        
+        # Medição 2
+        "data_2": str(st.session_state.get('med_data_1', date.today())),
+        "peso_2": st.session_state.get('med_peso_1', 0.0),
+        "alt_2": st.session_state.get('med_alt_1', 0.0),
+        
+        # Medição 3
+        "data_3": str(st.session_state.get('med_data_2', date.today())),
+        "peso_3": st.session_state.get('med_peso_2', 0.0),
+        "alt_3": st.session_state.get('med_alt_2', 0.0),
+        
+        # Medição 4
+        "data_4": str(st.session_state.get('med_data_3', date.today())),
+        "peso_4": st.session_state.get('med_peso_3', 0.0),
+        "alt_4": st.session_state.get('med_alt_3', 0.0),
+    }
+
+    # 3. Chamar a função que criamos para salvar no GSheets
+    # Ela vai identificar se o grupo é OMC ou Mãe Lalu e criar a aba certa
+    try:
+        salvar_dados_nutrimais(dados_para_planilha, grupo_sel['nome'])
+        st.success("Dados salvos com sucesso no Google Sheets!")
+        st.rerun()
+    except Exception as e:
+        st.error(f"Erro ao salvar na planilha: {e}")
                 st.markdown(f"## 📋 Ficha: {crianca_sel['nome']}")
                 sexo_label = "Masculino" if crianca_sel["sexo"] == "M" else "Feminino"
                 ficha_info = (f"**Sexo:** {sexo_label} | **Data de Nascimento:** {format_date_br(crianca_sel['data_nascimento'])} | "
