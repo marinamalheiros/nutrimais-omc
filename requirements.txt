@@ -5,3 +5,5 @@ st-gsheets-connection
 gspread
 google-auth
 reportlab
+kaleido
+pdf2image
