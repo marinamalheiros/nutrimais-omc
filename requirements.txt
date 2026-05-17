@@ -1,6 +1,7 @@
 streamlit
 numpy
 plotly
-supabase==2.10.0
 st-gsheets-connection
 gspread
+google-auth
+reportlab
