@@ -478,9 +478,12 @@ def importar_gsheets_para_sqlite():
                 crianca_id = crianca_row[0]
 
                 # UPSERT medições: até 4 grupos de 3 colunas (Data, Peso, Alt)
+                # Estratégia: apaga todas as medições atuais da criança e reinsere
+                # a partir da planilha, garantindo que valores editados reflitam.
+                medicoes_novas = []
                 for i in range(4):
                     idx_base = med_start + i * 3
-                    if idx_base + 2 >= len(row):
+                    if idx_base + 2 > len(row) - 1:
                         break
                     data_med = row[idx_base].strip()
                     peso_str = row[idx_base + 1].strip().replace(",", ".")
@@ -493,33 +496,27 @@ def importar_gsheets_para_sqlite():
                         if peso <= 0 or alt <= 0:
                             continue
                         # Normaliza data da medição
+                        data_norm = data_med
                         for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"):
                             try:
                                 from datetime import datetime as _dt2
-                                data_med = _dt2.strptime(data_med, fmt).strftime("%Y-%m-%d")
+                                data_norm = _dt2.strptime(data_med, fmt).strftime("%Y-%m-%d")
                                 break
                             except:
                                 pass
-                        existe_med = conn.execute(
-                            "SELECT id, peso, altura FROM medicoes WHERE crianca_id=? AND data_medicao=?",
-                            (crianca_id, data_med)).fetchone()
-                        if not existe_med:
-                            # Nova medição
-                            conn.execute(
-                                "INSERT INTO medicoes (crianca_id, data_medicao, peso, altura) VALUES (?,?,?,?)",
-                                (crianca_id, data_med, peso, alt))
-                            conn.commit()
-                            total_atualizados += 1
-                        else:
-                            # Atualiza se peso ou altura mudaram na planilha
-                            if abs(existe_med[1] - peso) > 0.001 or abs(existe_med[2] - alt) > 0.001:
-                                conn.execute(
-                                    "UPDATE medicoes SET peso=?, altura=? WHERE id=?",
-                                    (peso, alt, existe_med[0]))
-                                conn.commit()
-                                total_atualizados += 1
+                        medicoes_novas.append((data_norm, peso, alt))
                     except:
                         continue
+
+                if medicoes_novas:
+                    # Remove medições antigas e reinsere as da planilha
+                    conn.execute("DELETE FROM medicoes WHERE crianca_id=?", (crianca_id,))
+                    for data_norm, peso, alt in medicoes_novas:
+                        conn.execute(
+                            "INSERT INTO medicoes (crianca_id, data_medicao, peso, altura) VALUES (?,?,?,?)",
+                            (crianca_id, data_norm, peso, alt))
+                    conn.commit()
+                    total_atualizados += len(medicoes_novas)
 
     conn.close()
     if total_novos > 0:
