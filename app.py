@@ -1402,7 +1402,7 @@ def _render_growth_chart_png_large(sexo, tipo, valid_meds, titulo, eixo_x_campo,
         ("z2",  "#FF4500", "--", 1.1, _lbl["+2"]),
         ("z3",  "#8B0000", "--", 1.0, _lbl["+3"]),
     ]
-    fig, ax = plt.subplots(figsize=(8.0, 5.8), dpi=150)
+    fig, ax = plt.subplots(figsize=(7.2, 4.6), dpi=150)
     fig.patch.set_facecolor("white")
     ax.set_facecolor("#FAFAFA")
 
@@ -1492,9 +1492,10 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
     PANEL_W = PW / 2          # largura de cada painel
 
     # Padding interno de cada painel (espelhado pelo template)
-    PAD_X   = 28    # margens laterais — conteúdo dentro da área branca
-    PAD_TOP = 148   # bem abaixo do arco verde superior — evita sobreposição
-    PAD_BOT = 110   # bem acima do rodapé verde — texto não cai sobre as frutas
+    # PH ≈ 595pt. Arco verde superior: ~160pt. Rodapé amarelo+frutas: ~135pt.
+    PAD_X   = 30    # margens laterais — conteúdo dentro da área branca
+    PAD_TOP = 165   # abaixo do arco verde superior
+    PAD_BOT = 138   # acima do rodapé amarelo com as frutas
 
     buf = io.BytesIO()
     c = rl_canvas.Canvas(buf, pagesize=landscape(A4))
@@ -1616,7 +1617,7 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
     def draw_footer_panel(cx, cw, cy_bot, page_num, panel_num):
         c.setFillColorRGB(0.27, 0.55, 0.09)
         c.setFont("Helvetica", 6.5)
-        c.drawCentredString(cx + cw / 2, cy_bot - 2,
+        c.drawCentredString(cx + cw / 2, cy_bot + 4,
             f"Gerado em {_date.today().strftime('%d/%m/%Y')}  —  Pág. {page_num}")
 
     # ─────────────────────────────────────────────────────────
@@ -1865,25 +1866,26 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
                     continue
 
                 # ── Constantes de layout ──
-                DIAG_FONT   = 8.5
-                BADGE_H     = 15
-                BADGE_GAP   = 4
-                TITULO_H    = 20   # texto do título
-                LINHA_H     = 6    # linha separadora + gap
-                SUBTIT_H    = 16   # subtítulo em negrito
-                GAP_SUB_IMG = 6    # gap entre subtítulo e gráfico
-                GAP_IMG_DIAG = 8   # gap entre gráfico e diagnósticos
+                DIAG_FONT   = 8.0
+                BADGE_H     = 14
+                BADGE_GAP   = 3
+                TITULO_H    = 18   # texto do título
+                LINHA_H     = 5    # linha separadora + gap
+                SUBTIT_H    = 14   # subtítulo em negrito
+                GAP_SUB_IMG = 5    # gap entre subtítulo e gráfico
+                GAP_IMG_DIAG = 6   # gap entre gráfico e diagnósticos
                 DIAG_AREA_H = len(diagnosticos) * (BADGE_H + BADGE_GAP)
+                FOOTER_H    = 14   # reserva para o texto de rodapé
 
                 header_h  = TITULO_H + LINHA_H + SUBTIT_H + GAP_SUB_IMG
-                footer_h  = DIAG_AREA_H + GAP_IMG_DIAG
+                footer_h  = DIAG_AREA_H + GAP_IMG_DIAG + FOOTER_H
 
                 # Área útil total
                 area_util = cy_top_p - cy_bot_p
 
                 # Gráfico ocupa tudo que restar
                 img_h = area_util - header_h - footer_h
-                img_h = max(img_h, 150)
+                img_h = max(img_h, 120)
 
                 # Bloco completo centralizado verticalmente
                 bloco_h  = header_h + img_h + footer_h
@@ -1918,7 +1920,7 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
                 # ── Diagnósticos abaixo do gráfico ──
                 diag_y = img_y - GAP_IMG_DIAG
                 for diag_item in diagnosticos:
-                    if diag_y < cy_bot_p + 4:
+                    if diag_y < cy_bot_p + FOOTER_H + BADGE_H:
                         break
                     cor_rgb = hex_to_rgb(diag_item["cor_hex"])
                     cor_txt = (0.1, 0.1, 0.1) if diag_item["cor_hex"].upper() in ("#FFD700", "#FFC713") else (1, 1, 1)
