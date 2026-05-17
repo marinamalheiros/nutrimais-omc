@@ -383,16 +383,13 @@ def hash_password(password):
 
 def importar_gsheets_para_sqlite():
     """
-    Lê TODOS os dados do Google Sheets e popula o SQLite local.
-    Executado automaticamente na inicialização do app, só se o banco estiver vazio.
-    Isso garante que após um reboot/reset, os dados da planilha sejam restaurados.
+    Sincroniza TODOS os dados do Google Sheets para o SQLite local.
+    Executado sempre na inicialização do app.
+    - Cria grupos, turmas e crianças que ainda não existem no banco.
+    - Faz UPSERT nas medições: insere novas e atualiza peso/altura de
+      medições já existentes (mesma criança + mesma data), garantindo
+      que edições feitas diretamente na planilha reflitam no app.
     """
-    conn = get_db()
-    total_criancas = conn.execute("SELECT COUNT(*) FROM criancas").fetchone()[0]
-    conn.close()
-    if total_criancas > 0:
-        return  # Banco já tem dados, não precisa importar
-
     try:
         client = get_gsheets_client()
         url = st.secrets["connections"]["gsheets"]["spreadsheet"]
@@ -403,7 +400,8 @@ def importar_gsheets_para_sqlite():
         return
 
     conn = get_db()
-    total_importadas = 0
+    total_novos = 0
+    total_atualizados = 0
 
     for grupo_nome, lista_turmas in TURMAS_POR_GRUPO.items():
         # Garante que o grupo existe
@@ -425,7 +423,6 @@ def importar_gsheets_para_sqlite():
             if len(dados) < 2:
                 continue
 
-            header = dados[0]
             rows = dados[1:]
 
             # Garante que a turma existe
@@ -460,33 +457,39 @@ def importar_gsheets_para_sqlite():
                     comunidade = ""
                     med_start = 3
 
-                # Verifica se já existe
+                # Insere criança se não existe; atualiza dados cadastrais se já existe
                 existe = conn.execute("SELECT id FROM criancas WHERE nome=? AND turma_id=?", (nome, turma_id)).fetchone()
                 if not existe:
                     conn.execute(
                         "INSERT INTO criancas (nome, sexo, data_nascimento, grupo_id, turma_id, comunidade) VALUES (?,?,?,?,?,?)",
                         (nome, sexo, nasc, grupo_id, turma_id, comunidade if comunidade else None))
                     conn.commit()
-                    total_importadas += 1
+                    total_novos += 1
+                else:
+                    # Atualiza dados cadastrais que possam ter mudado na planilha
+                    conn.execute(
+                        "UPDATE criancas SET sexo=?, data_nascimento=?, comunidade=? WHERE id=?",
+                        (sexo, nasc, comunidade if comunidade else None, existe[0]))
+                    conn.commit()
 
                 crianca_row = conn.execute("SELECT id FROM criancas WHERE nome=? AND turma_id=?", (nome, turma_id)).fetchone()
                 if not crianca_row:
                     continue
                 crianca_id = crianca_row[0]
 
-                # Importa medições (até 4 grupos de 3 colunas: Data, Peso, Alt)
+                # UPSERT medições: até 4 grupos de 3 colunas (Data, Peso, Alt)
                 for i in range(4):
                     idx_base = med_start + i * 3
                     if idx_base + 2 >= len(row):
                         break
                     data_med = row[idx_base].strip()
                     peso_str = row[idx_base + 1].strip().replace(",", ".")
-                    alt_str = row[idx_base + 2].strip().replace(",", ".")
+                    alt_str  = row[idx_base + 2].strip().replace(",", ".")
                     if not data_med or not peso_str or not alt_str:
                         continue
                     try:
                         peso = float(peso_str)
-                        alt = float(alt_str)
+                        alt  = float(alt_str)
                         if peso <= 0 or alt <= 0:
                             continue
                         # Normaliza data da medição
@@ -498,19 +501,31 @@ def importar_gsheets_para_sqlite():
                             except:
                                 pass
                         existe_med = conn.execute(
-                            "SELECT id FROM medicoes WHERE crianca_id=? AND data_medicao=?",
+                            "SELECT id, peso, altura FROM medicoes WHERE crianca_id=? AND data_medicao=?",
                             (crianca_id, data_med)).fetchone()
                         if not existe_med:
+                            # Nova medição
                             conn.execute(
                                 "INSERT INTO medicoes (crianca_id, data_medicao, peso, altura) VALUES (?,?,?,?)",
                                 (crianca_id, data_med, peso, alt))
                             conn.commit()
+                            total_atualizados += 1
+                        else:
+                            # Atualiza se peso ou altura mudaram na planilha
+                            if abs(existe_med[1] - peso) > 0.001 or abs(existe_med[2] - alt) > 0.001:
+                                conn.execute(
+                                    "UPDATE medicoes SET peso=?, altura=? WHERE id=?",
+                                    (peso, alt, existe_med[0]))
+                                conn.commit()
+                                total_atualizados += 1
                     except:
                         continue
 
     conn.close()
-    if total_importadas > 0:
-        st.toast(f"✅ {total_importadas} alunos importados do Google Sheets!", icon="📥")
+    if total_novos > 0:
+        st.toast(f"✅ {total_novos} alunos novos importados do Google Sheets!", icon="📥")
+    if total_atualizados > 0:
+        st.toast(f"🔄 {total_atualizados} medições sincronizadas do Google Sheets!", icon="📊")
 
 def lerp_val(arr, x, xi):
     for i in range(len(x) - 1):
@@ -1711,15 +1726,15 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
     # ── Painel direito: 1.2 Aferições ──
     # Estimar altura do conteúdo para centralização vertical
     n_meds = len(medicoes) if medicoes else 1
-    ROW_H  = 15
-    av_line_h = 10
+    ROW_H  = 18
+    av_line_h = 11
     av_lines_count = 5
     aviso_h = av_lines_count * av_line_h + 14
-    oms_h   = 20
-    table_h = (n_meds + 1) * (ROW_H + 1) + 4
+    oms_h   = 24
+    table_h = (n_meds + 1) * (ROW_H + 2) + 4
     TITLE_H2 = 40
     BAR_H2   = 24
-    conteudo_dir_h = TITLE_H2 + BAR_H2 + table_h + oms_h + aviso_h + 10
+    conteudo_dir_h = TITLE_H2 + BAR_H2 + table_h + oms_h + aviso_h + 16
     area_dir_h = cy_top - cy_bot
     offset_v2 = max(0, (area_dir_h - conteudo_dir_h) / 2)
     start_y2 = cy_top - offset_v2
@@ -1741,12 +1756,12 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
     c.setFillColorRGB(0.38, 0.1, 0.58)
     c.rect(table_x, cur_y2 - 2, cw_r, row_h_t, fill=1, stroke=0)
     c.setFillColorRGB(1, 1, 1)
-    c.setFont("Helvetica-Bold", 7)
+    c.setFont("Helvetica-Bold", 7.5)
     xi = table_x
     for lbl, cw_col in zip(col_labels, col_ws):
-        c.drawCentredString(xi + cw_col / 2, cur_y2 + 3, lbl.replace("\n", " "))
+        c.drawCentredString(xi + cw_col / 2, cur_y2 + 4, lbl.replace("\n", " "))
         xi += cw_col
-    cur_y2 -= row_h_t + 2
+    cur_y2 -= row_h_t + 3
 
     RESERVA = cy_bot + 80
     if medicoes:
@@ -1777,23 +1792,23 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
                         imc_txt]
             xi = table_x
             for ci, (val, cw_col) in enumerate(zip(row_vals, col_ws)):
-                c.setFillColorRGB(0.15, 0.15, 0.15); c.setFont("Helvetica", 7)
-                c.drawCentredString(xi + cw_col / 2, cur_y2 + 3, val)
+                c.setFillColorRGB(0.15, 0.15, 0.15); c.setFont("Helvetica", 7.5)
+                c.drawCentredString(xi + cw_col / 2, cur_y2 + 4, val)
                 xi += cw_col
             c.setStrokeColorRGB(0.8, 0.75, 0.9); c.setLineWidth(0.3)
             c.line(table_x, cur_y2 - 2, table_x + cw_r, cur_y2 - 2)
-            cur_y2 -= row_h_t + 1
+            cur_y2 -= row_h_t + 2
     else:
         c.setFillColorRGB(0.5, 0.5, 0.5); c.setFont("Helvetica-Oblique", 8)
         c.drawString(table_x + 6, cur_y2, "Nenhuma aferição registrada.")
         cur_y2 -= 14
 
     # Texto OMS
-    cur_y2 -= 8
+    cur_y2 -= 12
     c.setFillColorRGB(0.15, 0.15, 0.15); c.setFont("Helvetica-BoldOblique", 8)
     oms_txt = "Seguem as classificações de acordo com as curvas de crescimento da OMS."
     c.drawString(cx_r, cur_y2, oms_txt)
-    cur_y2 -= 12
+    cur_y2 -= 14
 
     # Caixa aviso importante
     aviso_lines = [
@@ -1810,7 +1825,7 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
     c.roundRect(cx_r, av_y_base - 2, cw_r, av_total_h, 4, fill=1, stroke=0)
     c.setFillColorRGB(0.94, 0.75, 0.12)
     c.rect(cx_r, av_y_base - 2, 4, av_total_h, fill=1, stroke=0)
-    ty = av_y_start - 8
+    ty = av_y_start - 9
     for txt, bold in aviso_lines:
         c.setFillColorRGB(0.35, 0.22, 0.03)
         c.setFont("Helvetica-Bold" if bold else "Helvetica", 7.5)
@@ -1867,15 +1882,15 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
 
                 # ── Constantes de layout ──
                 DIAG_FONT   = 8.0
-                BADGE_H     = 14
-                BADGE_GAP   = 3
-                TITULO_H    = 18   # texto do título
-                LINHA_H     = 5    # linha separadora + gap
-                SUBTIT_H    = 14   # subtítulo em negrito
-                GAP_SUB_IMG = 5    # gap entre subtítulo e gráfico
-                GAP_IMG_DIAG = 6   # gap entre gráfico e diagnósticos
+                BADGE_H     = 15
+                BADGE_GAP   = 5
+                TITULO_H    = 20   # texto do título
+                LINHA_H     = 7    # linha separadora + gap
+                SUBTIT_H    = 16   # subtítulo em negrito
+                GAP_SUB_IMG = 8    # gap entre subtítulo e gráfico
+                GAP_IMG_DIAG = 10  # gap entre gráfico e diagnósticos
                 DIAG_AREA_H = len(diagnosticos) * (BADGE_H + BADGE_GAP)
-                FOOTER_H    = 14   # reserva para o texto de rodapé
+                FOOTER_H    = 16   # reserva para o texto de rodapé
 
                 header_h  = TITULO_H + LINHA_H + SUBTIT_H + GAP_SUB_IMG
                 footer_h  = DIAG_AREA_H + GAP_IMG_DIAG + FOOTER_H
