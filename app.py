@@ -1373,7 +1373,7 @@ def _render_growth_chart_png_large(sexo, tipo, valid_meds, titulo, eixo_x_campo,
     ]
 
     # Figura maior para o painel do folder
-    fig, ax = plt.subplots(figsize=(5.8, 4.2), dpi=150)
+    fig, ax = plt.subplots(figsize=(6.8, 5.2), dpi=150)
     fig.patch.set_facecolor("white")
     ax.set_facecolor("#FAFAFA")
 
@@ -1463,9 +1463,9 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
     PANEL_W = PW / 2          # largura de cada painel
 
     # Padding interno de cada painel (espelhado pelo template)
-    PAD_X   = 44    # margens laterais dentro do painel
-    PAD_TOP = 100   # abaixo do topo do template (frutas/arco)
-    PAD_BOT = 90    # acima do rodapé do template
+    PAD_X   = 36    # margens laterais dentro do painel (reduzido para mais área útil)
+    PAD_TOP = 110   # abaixo do topo do template (frutas/arco verde) — aumentado para evitar sobreposição
+    PAD_BOT = 70    # acima do rodapé do template — reduzido para aproveitar mais espaço
 
     buf = io.BytesIO()
     c = rl_canvas.Canvas(buf, pagesize=landscape(A4))
@@ -1578,16 +1578,16 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
         c.setFillColorRGB(0.27, 0.55, 0.09)
         c.setFont("Helvetica-Bold", size)
         c.drawCentredString(cx + cw / 2, cy_top, label)
-        cur = cy_top - 12
+        cur = cy_top - 14
         c.setStrokeColorRGB(0.42, 0.68, 0.15)
         c.setLineWidth(1.2)
         c.line(cx, cur, cx + cw, cur)
-        return cur - 8
+        return cur - 6
 
     def draw_footer_panel(cx, cw, cy_bot, page_num, panel_num):
         c.setFillColorRGB(0.27, 0.55, 0.09)
         c.setFont("Helvetica", 6.5)
-        c.drawCentredString(cx + cw / 2, cy_bot - 8,
+        c.drawCentredString(cx + cw / 2, cy_bot - 2,
             f"Gerado em {_date.today().strftime('%d/%m/%Y')} | NutriMais  —  Pag. {page_num}")
 
     # ─────────────────────────────────────────────────────────
@@ -1629,28 +1629,28 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
     c.setFillColorRGB(0.38, 0.1, 0.58)
     c.setFont("Helvetica", 7.5)
     c.drawCentredString(cx_l + cw / 2, cur_y, f"{nome_aluno}  |  {turma_nome}  |  {grupo_nome}")
-    cur_y -= 14
+    cur_y -= 10
 
     cur_y = draw_section_bar("1.1  DADOS CADASTRAIS DO ALUNO", cur_y, cx_l, cw)
 
     # Foto (canto direito do painel)
-    FOTO_W = 72; FOTO_H = 90
+    FOTO_W = 85; FOTO_H = 108
     foto_x = cx_l + cw - FOTO_W
     foto_y_top = cur_y
 
     draw_field("Nome:", nome_aluno, cx_l, cur_y, lbl_w=65)
-    cur_y -= 15
+    cur_y -= 16
     draw_field("Turma:", turma_nome, cx_l, cur_y, lbl_w=55)
-    cur_y -= 15
+    cur_y -= 16
     draw_field("Nascimento:", format_date_pdf(crianca.get("data_nascimento")), cx_l, cur_y, lbl_w=75)
-    cur_y -= 15
+    cur_y -= 16
     draw_field("Idade:", calcular_idade_str(crianca.get("data_nascimento")), cx_l, cur_y, lbl_w=55)
-    cur_y -= 15
+    cur_y -= 16
     draw_field("Sexo:", sexo_label, cx_l, cur_y, lbl_w=50)
     if crianca.get("comunidade"):
-        cur_y -= 15
+        cur_y -= 16
         draw_field("Comunidade:", crianca.get("comunidade"), cx_l, cur_y, lbl_w=75)
-    cur_y -= 8
+    cur_y -= 10
 
     foto_y = foto_y_top - FOTO_H
     c.setFillColorRGB(0.85, 0.93, 0.98)
@@ -1673,14 +1673,14 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
     c.setFillColorRGB(0.38, 0.1, 0.58)
     c.setFont("Helvetica", 7.5)
     c.drawCentredString(cx_r + cw_r / 2, cur_y2, f"{nome_aluno}  |  {turma_nome}  |  {grupo_nome}")
-    cur_y2 -= 14
+    cur_y2 -= 10
 
     cur_y2 = draw_section_bar("1.2  AFERICOES ANTROPOMETRICAS", cur_y2, cx_r, cw_r)
 
     col_labels = ["Aferição", "Data", "Peso\n(kg)", "Altura\n(cm)", "IMC\n(kg/m²)", "Diagnóstico Nutricional"]
     col_pcts   = [0.13, 0.13, 0.10, 0.12, 0.12, 0.40]
     col_ws     = [cw_r * p for p in col_pcts]
-    row_h_t    = 14
+    row_h_t    = 13
     table_x    = cx_r
 
     c.setFillColorRGB(0.38, 0.1, 0.58)
@@ -1693,7 +1693,7 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
         xi += cw_col
     cur_y2 -= row_h_t + 2
 
-    RESERVA = cy_bot + 100
+    RESERVA = cy_bot + 80
     if medicoes:
         for idx, med in enumerate(medicoes):
             if cur_y2 < RESERVA:
@@ -1738,11 +1738,11 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
         cur_y2 -= 14
 
     # Texto OMS
-    cur_y2 -= 10
+    cur_y2 -= 8
     c.setFillColorRGB(0.15, 0.15, 0.15); c.setFont("Helvetica-BoldOblique", 7.5)
     oms_txt = "Seguem as classificacoes de acordo com as curvas de crescimento da OMS."
     c.drawString(cx_r, cur_y2, oms_txt)
-    cur_y2 -= 13
+    cur_y2 -= 11
 
     # Caixa aviso importante
     aviso_lines = [
@@ -1804,7 +1804,7 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
                 c.setFillColorRGB(0.38, 0.1, 0.58)
                 c.setFont("Helvetica", 7)
                 c.drawCentredString(cx_p + cw_p / 2, cur_p, subtitulo_g)
-                cur_p -= 12
+                cur_p -= 8
 
                 if not ref_check or not valid_for:
                     c.setFillColorRGB(0.5, 0.5, 0.5); c.setFont("Helvetica-Oblique", 8)
@@ -1821,9 +1821,9 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
                     continue
 
                 # Área para o gráfico: deixa espaço embaixo para diagnósticos
-                DIAG_AREA_H = len(diagnosticos) * 13 + 8
-                img_h = cy_top_p - cur_p - DIAG_AREA_H - cy_bot_p - 15
-                img_h = max(img_h, 120)
+                DIAG_AREA_H = len(diagnosticos) * 12 + 6
+                img_h = cy_top_p - cur_p - DIAG_AREA_H - cy_bot_p - 8
+                img_h = max(img_h, 140)
                 img_y = cur_p - img_h
 
                 img_buf = _io4.BytesIO(png)
@@ -1832,14 +1832,14 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
                             preserveAspectRatio=True, mask="auto")
 
                 # Diagnósticos abaixo do gráfico
-                diag_y = img_y - 8
+                diag_y = img_y - 6
                 for diag_item in diagnosticos:
                     if diag_y < cy_bot_p + 10:
                         break
                     cor_rgb = hex_to_rgb(diag_item["cor_hex"])
                     cor_txt = (0.1, 0.1, 0.1) if diag_item["cor_hex"].upper() in ("#FFD700", "#FFC713") else (1, 1, 1)
                     badge_w = cw_p - 4
-                    badge_h = 11
+                    badge_h = 10
                     c.setFillColorRGB(*cor_rgb)
                     c.roundRect(cx_p + 2, diag_y - 1, badge_w, badge_h, 3, fill=1, stroke=0)
                     label_txt = diag_item["label"]
@@ -1850,7 +1850,7 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
                     c.setFont("Helvetica-Bold", 6.5)
                     lbl_w_px = c.stringWidth(label_txt, "Helvetica", 6.5)
                     c.drawString(cx_p + 8 + lbl_w_px, diag_y + 2, f"→ {status_txt}")
-                    diag_y -= 13
+                    diag_y -= 12
 
                 draw_footer_panel(cx_p, cw_p, cy_bot_p, page_num, gi + 1)
 
