@@ -381,6 +381,137 @@ def init_db():
 def hash_password(password):
     return hashlib.sha256((password + "nutrimais_salt").encode()).hexdigest()
 
+def importar_gsheets_para_sqlite():
+    """
+    Lê TODOS os dados do Google Sheets e popula o SQLite local.
+    Executado automaticamente na inicialização do app, só se o banco estiver vazio.
+    Isso garante que após um reboot/reset, os dados da planilha sejam restaurados.
+    """
+    conn = get_db()
+    total_criancas = conn.execute("SELECT COUNT(*) FROM criancas").fetchone()[0]
+    conn.close()
+    if total_criancas > 0:
+        return  # Banco já tem dados, não precisa importar
+
+    try:
+        client = get_gsheets_client()
+        url = st.secrets["connections"]["gsheets"]["spreadsheet"]
+        url = url.split("?")[0].replace("/edit", "")
+        spreadsheet = client.open_by_url(url)
+    except Exception as e:
+        st.warning(f"⚠️ Não foi possível conectar ao Google Sheets para importar dados: {e}")
+        return
+
+    conn = get_db()
+    total_importadas = 0
+
+    for grupo_nome, lista_turmas in TURMAS_POR_GRUPO.items():
+        # Garante que o grupo existe
+        grupo_row = conn.execute("SELECT id FROM grupos WHERE nome=?", (grupo_nome,)).fetchone()
+        if not grupo_row:
+            conn.execute("INSERT OR IGNORE INTO grupos (nome) VALUES (?)", (grupo_nome,))
+            conn.commit()
+            grupo_row = conn.execute("SELECT id FROM grupos WHERE nome=?", (grupo_nome,)).fetchone()
+        grupo_id = grupo_row[0]
+        incluir_comunidade = (grupo_nome == "Instituto Mãe Lalu")
+
+        for nome_turma in lista_turmas:
+            try:
+                ws = spreadsheet.worksheet(nome_turma)
+            except Exception:
+                continue  # Aba não existe ainda
+
+            dados = ws.get_all_values()
+            if len(dados) < 2:
+                continue
+
+            header = dados[0]
+            rows = dados[1:]
+
+            # Garante que a turma existe
+            turma_row = conn.execute("SELECT id FROM turmas WHERE nome=? AND grupo_id=?", (nome_turma, grupo_id)).fetchone()
+            if not turma_row:
+                conn.execute("INSERT INTO turmas (nome, grupo_id) VALUES (?,?)", (nome_turma, grupo_id))
+                conn.commit()
+                turma_row = conn.execute("SELECT id FROM turmas WHERE nome=? AND grupo_id=?", (nome_turma, grupo_id)).fetchone()
+            turma_id = turma_row[0]
+
+            for row in rows:
+                if not row or not row[0].strip():
+                    continue
+                nome = row[0].strip()
+                sexo = row[1].strip() if len(row) > 1 else "M"
+                nasc = row[2].strip() if len(row) > 2 else ""
+
+                # Normaliza data de nascimento
+                if nasc:
+                    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"):
+                        try:
+                            from datetime import datetime as _dt
+                            nasc = _dt.strptime(nasc, fmt).strftime("%Y-%m-%d")
+                            break
+                        except:
+                            pass
+
+                if incluir_comunidade:
+                    comunidade = row[3].strip() if len(row) > 3 else ""
+                    med_start = 4
+                else:
+                    comunidade = ""
+                    med_start = 3
+
+                # Verifica se já existe
+                existe = conn.execute("SELECT id FROM criancas WHERE nome=? AND turma_id=?", (nome, turma_id)).fetchone()
+                if not existe:
+                    conn.execute(
+                        "INSERT INTO criancas (nome, sexo, data_nascimento, grupo_id, turma_id, comunidade) VALUES (?,?,?,?,?,?)",
+                        (nome, sexo, nasc, grupo_id, turma_id, comunidade if comunidade else None))
+                    conn.commit()
+                    total_importadas += 1
+
+                crianca_row = conn.execute("SELECT id FROM criancas WHERE nome=? AND turma_id=?", (nome, turma_id)).fetchone()
+                if not crianca_row:
+                    continue
+                crianca_id = crianca_row[0]
+
+                # Importa medições (até 4 grupos de 3 colunas: Data, Peso, Alt)
+                for i in range(4):
+                    idx_base = med_start + i * 3
+                    if idx_base + 2 >= len(row):
+                        break
+                    data_med = row[idx_base].strip()
+                    peso_str = row[idx_base + 1].strip().replace(",", ".")
+                    alt_str = row[idx_base + 2].strip().replace(",", ".")
+                    if not data_med or not peso_str or not alt_str:
+                        continue
+                    try:
+                        peso = float(peso_str)
+                        alt = float(alt_str)
+                        if peso <= 0 or alt <= 0:
+                            continue
+                        # Normaliza data da medição
+                        for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"):
+                            try:
+                                from datetime import datetime as _dt2
+                                data_med = _dt2.strptime(data_med, fmt).strftime("%Y-%m-%d")
+                                break
+                            except:
+                                pass
+                        existe_med = conn.execute(
+                            "SELECT id FROM medicoes WHERE crianca_id=? AND data_medicao=?",
+                            (crianca_id, data_med)).fetchone()
+                        if not existe_med:
+                            conn.execute(
+                                "INSERT INTO medicoes (crianca_id, data_medicao, peso, altura) VALUES (?,?,?,?)",
+                                (crianca_id, data_med, peso, alt))
+                            conn.commit()
+                    except:
+                        continue
+
+    conn.close()
+    if total_importadas > 0:
+        st.toast(f"✅ {total_importadas} alunos importados do Google Sheets!", icon="📥")
+
 def lerp_val(arr, x, xi):
     for i in range(len(x) - 1):
         if xi >= x[i] and xi <= x[i + 1]:
@@ -618,6 +749,7 @@ def can_view_group(user, grupo_nome=None):
     return False
 
 init_db()
+importar_gsheets_para_sqlite()
 
 if "user" not in st.session_state:
     st.session_state.user = None
@@ -924,6 +1056,229 @@ def render_growth_chart(sexo, tipo, medicoes_data, titulo, eixo_x_campo, eixo_y_
             f'<span style="background:{cor};color:{cor_txt};padding:3px 10px;border-radius:6px;font-weight:bold;font-size:0.82rem;">{status}</span>',
             unsafe_allow_html=True)
     return fig
+
+def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes):
+    """
+    Gera um PDF da ficha cadastral da criança com o design colorido
+    (fundo amarelo/verde com frutas, similar ao template da Cozinha Experimental).
+    Retorna bytes do PDF.
+    """
+    import io
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors
+    from reportlab.lib.units import cm, mm
+    from reportlab.platypus import Table, TableStyle
+    from reportlab.lib.utils import ImageReader
+
+    buf = io.BytesIO()
+    W, H = A4  # 595 x 842 pts
+    c = canvas.Canvas(buf, pagesize=A4)
+
+    # ── FUNDO AMARELO ──
+    c.setFillColorRGB(1.0, 0.93, 0.3)
+    c.rect(0, 0, W, H, fill=1, stroke=0)
+
+    # ── ÁREA BRANCA CENTRAL (área de conteúdo) ──
+    margin_x = 40
+    margin_top = 160
+    margin_bottom = 140
+    content_x = margin_x
+    content_y = margin_bottom
+    content_w = W - 2 * margin_x
+    content_h = H - margin_top - margin_bottom
+
+    c.setFillColorRGB(1, 1, 1)
+    c.roundRect(content_x, content_y, content_w, content_h, 30, fill=1, stroke=0)
+
+    # ── BORDA VERDE em torno da área branca ──
+    c.setStrokeColorRGB(0.47, 0.73, 0.18)
+    c.setLineWidth(8)
+    c.roundRect(content_x, content_y, content_w, content_h, 30, fill=0, stroke=1)
+
+    # ── CABEÇALHO VERDE (topo) ──
+    c.setFillColorRGB(0.47, 0.73, 0.18)
+    c.roundRect(content_x, content_y + content_h - 60, content_w, 60, 20, fill=1, stroke=0)
+    # Retângulo extra para fechar cantos inferiores do cabeçalho
+    c.rect(content_x, content_y + content_h - 40, content_w, 40, fill=1, stroke=0)
+
+    # ── TÍTULO NO CABEÇALHO ──
+    c.setFillColorRGB(1, 1, 1)
+    c.setFont("Helvetica-Bold", 18)
+    c.drawCentredString(W / 2, content_y + content_h - 38, "FICHA CADASTRAL DO ALUNO")
+    c.setFont("Helvetica", 11)
+    c.drawCentredString(W / 2, content_y + content_h - 54, "NutriMais — Acompanhamento Nutricional")
+
+    # ── CONTEÚDO DA FICHA ──
+    text_x = content_x + 30
+    cur_y = content_y + content_h - 90
+
+    def draw_label_value(label, value, y, label_color=(0.42, 0.1, 0.6), value_color=(0.1, 0.1, 0.1)):
+        c.setFillColorRGB(*label_color)
+        c.setFont("Helvetica-Bold", 10)
+        c.drawString(text_x, y, label)
+        c.setFillColorRGB(*value_color)
+        c.setFont("Helvetica", 10)
+        c.drawString(text_x + 130, y, str(value) if value else "-")
+
+    def draw_section_title(title, y):
+        c.setFillColorRGB(0.47, 0.73, 0.18)
+        c.roundRect(text_x - 8, y - 4, content_w - 44, 22, 6, fill=1, stroke=0)
+        c.setFillColorRGB(1, 1, 1)
+        c.setFont("Helvetica-Bold", 11)
+        c.drawString(text_x, y + 4, title)
+        return y - 10
+
+    def format_date_pdf(d):
+        if not d:
+            return "-"
+        try:
+            parts = str(d).split("-")
+            if len(parts) == 3:
+                return f"{parts[2]}/{parts[1]}/{parts[0]}"
+        except:
+            pass
+        return str(d)
+
+    # Dados Pessoais
+    cur_y = draw_section_title("📋  DADOS PESSOAIS", cur_y)
+    cur_y -= 22
+    sexo_label = "Masculino" if crianca.get("sexo") == "M" else "Feminino"
+    draw_label_value("Nome:", crianca.get("nome", "-"), cur_y)
+    cur_y -= 18
+    draw_label_value("Sexo:", sexo_label, cur_y)
+    cur_y -= 18
+    draw_label_value("Data de Nascimento:", format_date_pdf(crianca.get("data_nascimento")), cur_y)
+    cur_y -= 18
+    draw_label_value("Grupo:", grupo_nome, cur_y)
+    cur_y -= 18
+    draw_label_value("Turma:", turma_nome, cur_y)
+    if crianca.get("comunidade"):
+        cur_y -= 18
+        draw_label_value("Comunidade:", crianca.get("comunidade"), cur_y)
+
+    cur_y -= 28
+
+    # Medições
+    cur_y = draw_section_title("📊  MEDIÇÕES ANTROPOMÉTRICAS", cur_y)
+    cur_y -= 26
+
+    if medicoes:
+        # Cabeçalho da tabela
+        col_labels = ["Medição", "Data", "Peso (kg)", "Altura (cm)", "IMC (kg/m²)", "Diagnóstico"]
+        col_widths = [60, 70, 70, 70, 70, 120]
+        table_x = text_x - 8
+
+        # Desenha cabeçalho da tabela
+        x_cur = table_x
+        c.setFillColorRGB(0.42, 0.1, 0.6)
+        total_tw = sum(col_widths)
+        c.rect(table_x, cur_y - 4, total_tw, 18, fill=1, stroke=0)
+        c.setFillColorRGB(1, 1, 1)
+        c.setFont("Helvetica-Bold", 8)
+        for ci, (lbl, cw) in enumerate(zip(col_labels, col_widths)):
+            c.drawCentredString(x_cur + cw / 2, cur_y + 2, lbl)
+            x_cur += cw
+        cur_y -= 20
+
+        for idx, med in enumerate(medicoes):
+            if cur_y < content_y + 50:
+                break
+            peso = med.get("peso", 0)
+            alt = med.get("altura", 0)
+            if peso > 0 and alt > 0:
+                imc = peso / pow(alt / 100, 2)
+                imc_txt = f"{imc:.2f}"
+                # Classificação simplificada por IMC
+                if imc < 14:
+                    diag = "Magreza acentuada"
+                    diag_cor = (0.55, 0, 0)
+                elif imc < 17:
+                    diag = "Magreza"
+                    diag_cor = (1, 0.27, 0)
+                elif imc < 25:
+                    diag = "Eutrofia"
+                    diag_cor = (0.18, 0.55, 0.34)
+                elif imc < 30:
+                    diag = "Sobrepeso"
+                    diag_cor = (1, 0.55, 0)
+                else:
+                    diag = "Obesidade"
+                    diag_cor = (1, 0, 0)
+            else:
+                imc_txt = "-"
+                diag = "Sem medição"
+                diag_cor = (0.5, 0.5, 0.5)
+
+            bg = (0.97, 0.94, 1.0) if idx % 2 == 0 else (1, 1, 1)
+            c.setFillColorRGB(*bg)
+            c.rect(table_x, cur_y - 4, total_tw, 18, fill=1, stroke=0)
+
+            row_vals = [
+                f"Medição {idx + 1}",
+                format_date_pdf(med.get("data_medicao", "")),
+                f"{peso:.1f}" if peso > 0 else "-",
+                f"{alt:.1f}" if alt > 0 else "-",
+                imc_txt,
+                diag
+            ]
+            x_cur = table_x
+            for ci, (val, cw) in enumerate(zip(row_vals, col_widths)):
+                if ci == 5:
+                    c.setFillColorRGB(*diag_cor)
+                    c.setFont("Helvetica-Bold", 7.5)
+                else:
+                    c.setFillColorRGB(0.15, 0.15, 0.15)
+                    c.setFont("Helvetica", 8)
+                c.drawCentredString(x_cur + cw / 2, cur_y + 2, val)
+                x_cur += cw
+
+            # Linha separadora
+            c.setStrokeColorRGB(0.85, 0.8, 0.92)
+            c.setLineWidth(0.5)
+            c.line(table_x, cur_y - 4, table_x + total_tw, cur_y - 4)
+
+            cur_y -= 20
+    else:
+        c.setFillColorRGB(0.5, 0.5, 0.5)
+        c.setFont("Helvetica-Oblique", 10)
+        c.drawString(text_x, cur_y, "Nenhuma medição registrada.")
+        cur_y -= 20
+
+    # ── RODAPÉ ──
+    cur_y -= 16
+    c.setFillColorRGB(0.47, 0.73, 0.18)
+    c.setFont("Helvetica", 8)
+    from datetime import date as _date
+    c.drawCentredString(W / 2, content_y + 16,
+        f"Gerado em {_date.today().strftime('%d/%m/%Y')} | NutriMais — Acompanhamento Nutricional")
+
+    # ── DECORAÇÕES: círculos coloridos nas bordas (simulando frutas) ──
+    frutas_cores = [
+        (1.0, 0.51, 0.0),   # laranja
+        (0.86, 0.08, 0.24),  # morango
+        (0.18, 0.55, 0.34),  # verde
+        (0.96, 0.26, 0.21),  # maçã
+        (1.0, 0.76, 0.03),   # abacaxi
+        (0.56, 0.27, 0.68),  # uva
+        (0.13, 0.59, 0.95),  # mirtilo
+        (1.0, 0.4, 0.4),     # melancia
+    ]
+    positions_top = [(55, H - 50), (100, H - 38), (145, H - 50), (W - 55, H - 50)]
+    positions_bot = [(55, 50), (100, 38), (W - 80, 45), (W - 55, 58)]
+    for i, (px, py) in enumerate(positions_top + positions_bot):
+        col = frutas_cores[i % len(frutas_cores)]
+        c.setFillColorRGB(*col)
+        c.circle(px, py, 16, fill=1, stroke=0)
+        c.setFillColorRGB(1, 1, 1)
+        c.setFont("Helvetica-Bold", 10)
+        emojis = ["🍊", "🍓", "🍏", "🍎", "🍍", "🍇", "🫐", "🍉"]
+        c.drawCentredString(px, py - 4, emojis[i % len(emojis)])
+
+    c.save()
+    buf.seek(0)
+    return buf.read()
+
 
 def main_app():
     user = st.session_state.user
@@ -1387,7 +1742,33 @@ def main_app():
 
                 # --- EXIBIÇÃO DA FICHA ---
                 # Estas linhas devem estar alinhadas com o 'if write_enabled' acima
-                st.markdown(f"## 📋 Ficha: {crianca_sel['nome']}")
+                header_ficha_col, pdf_col = st.columns([4, 1])
+                with header_ficha_col:
+                    st.markdown(f"## 📋 Ficha: {crianca_sel['nome']}")
+                with pdf_col:
+                    st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
+                    meds_para_pdf = conn.execute(
+                        "SELECT data_medicao, peso, altura FROM medicoes WHERE crianca_id=? AND peso>0 AND altura>0 ORDER BY data_medicao",
+                        (crianca_sel["id"],)).fetchall()
+                    try:
+                        pdf_bytes = gerar_ficha_pdf(
+                            crianca=crianca_sel,
+                            grupo_nome=grupo_sel["nome"],
+                            turma_nome=turma_sel["nome"],
+                            medicoes=[dict(m) for m in meds_para_pdf]
+                        )
+                        nome_arquivo_pdf = f"ficha_{crianca_sel['nome'].replace(' ', '_').lower()}.pdf"
+                        st.download_button(
+                            label="📄 Baixar Ficha PDF",
+                            data=pdf_bytes,
+                            file_name=nome_arquivo_pdf,
+                            mime="application/pdf",
+                            use_container_width=True,
+                            key=f"dl_ficha_pdf_{crianca_sel['id']}"
+                        )
+                    except Exception as e_pdf:
+                        st.caption(f"Erro PDF: {e_pdf}")
+
                 sexo_label = "Masculino" if crianca_sel["sexo"] == "M" else "Feminino"
                 ficha_info = (f"**Sexo:** {sexo_label} | **Data de Nascimento:** {format_date_br(crianca_sel['data_nascimento'])} | "
                               f"**Grupo:** {grupo_sel['nome']} | **Turma:** {turma_sel['nome']}")
