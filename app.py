@@ -1146,7 +1146,13 @@ def render_growth_chart(sexo, tipo, medicoes_data, titulo, eixo_x_campo, eixo_y_
         return
     z_keys = ["z-3","z-2","z-1","z0","z1","z2","z3"]
     z_colors = {"z3":"#DC143C","z2":"#FF8C00","z1":"#4682B4","z0":"#2E8B57","z-1":"#4682B4","z-2":"#FF8C00","z-3":"#DC143C"}
-    z_labels = {"z3":"+3","z2":"+2","z1":"+1","z0":"Mediana","z-1":"-1","z-2":"-2","z-3":"-3"}
+    _plotly_labels_map = {
+        "peso_idade":     {"z3":"+3 DP","z2":"Peso elevado","z1":"+1 DP","z0":"Mediana","z-1":"-1 DP","z-2":"Baixo peso","z-3":"Muito baixo peso"},
+        "estatura_idade": {"z3":"+3 DP","z2":"+2 DP","z1":"+1 DP","z0":"Mediana","z-1":"-1 DP","z-2":"Baixa estatura","z-3":"Muito baixa estatura"},
+        "imc_idade":      {"z3":"Obesidade","z2":"Sobrepeso","z1":"Risco de sobrepeso","z0":"Mediana","z-1":"-1 DP","z-2":"Magreza","z-3":"Magreza acentuada"},
+        "peso_estatura":  {"z3":"Obesidade","z2":"Sobrepeso","z1":"+1 DP","z0":"Mediana","z-1":"-1 DP","z-2":"Magreza","z-3":"Magreza acentuada"},
+    }
+    z_labels = _plotly_labels_map.get(tipo, {"z3":"+3","z2":"+2","z1":"+1","z0":"Mediana","z-1":"-1","z-2":"-2","z-3":"-3"})
     z_dash = {"z3":"dot","z2":"dash","z1":"dash","z0":"solid","z-1":"dash","z-2":"dash","z-3":"dot"}
     fig = go.Figure()
     for zk in z_keys:
@@ -1221,14 +1227,26 @@ def _render_growth_chart_png(sexo, tipo, valid_meds, titulo, eixo_x_campo, eixo_
     if not filtered_eixo:
         return None
 
+    _z_labels_map2 = {
+        "peso_idade":     {"-3": "Muito baixo peso", "-2": "Baixo peso", "-1": "-1 DP",
+                           "0": "Mediana", "+1": "+1 DP", "+2": "Peso elevado", "+3": "+3 DP"},
+        "estatura_idade": {"-3": "Muito baixa estatura", "-2": "Baixa estatura", "-1": "-1 DP",
+                           "0": "Mediana", "+1": "+1 DP", "+2": "+2 DP", "+3": "+3 DP"},
+        "imc_idade":      {"-3": "Magreza acentuada", "-2": "Magreza", "-1": "-1 DP",
+                           "0": "Mediana", "+1": "Risco de sobrepeso", "+2": "Sobrepeso", "+3": "Obesidade"},
+        "peso_estatura":  {"-3": "Magreza acentuada", "-2": "Magreza", "-1": "-1 DP",
+                           "0": "Mediana", "+1": "+1 DP", "+2": "Sobrepeso", "+3": "Obesidade"},
+    }
+    _lbl2 = _z_labels_map2.get(tipo, {"-3": "-3", "-2": "-2", "-1": "-1", "0": "Mediana", "+1": "+1", "+2": "+2", "+3": "+3"})
+
     z_cfg = [
-        ("z-3", "#8B0000", "--", 0.8, "-3"),
-        ("z-2", "#FF4500", "--", 0.9, "-2"),
-        ("z-1", "#4682B4", ":",  0.9, "-1"),
-        ("z0",  "#2E8B57", "-",  1.5, "Mediana"),
-        ("z1",  "#4682B4", ":",  0.9, "+1"),
-        ("z2",  "#FF4500", "--", 0.9, "+2"),
-        ("z3",  "#8B0000", "--", 0.8, "+3"),
+        ("z-3", "#8B0000", "--", 0.8, _lbl2["-3"]),
+        ("z-2", "#FF4500", "--", 0.9, _lbl2["-2"]),
+        ("z-1", "#4682B4", ":",  0.9, _lbl2["-1"]),
+        ("z0",  "#2E8B57", "-",  1.5, _lbl2["0"]),
+        ("z1",  "#4682B4", ":",  0.9, _lbl2["+1"]),
+        ("z2",  "#FF4500", "--", 0.9, _lbl2["+2"]),
+        ("z3",  "#8B0000", "--", 0.8, _lbl2["+3"]),
     ]
 
     fig, ax = plt.subplots(figsize=(5.2, 3.0), dpi=130)
@@ -1362,17 +1380,28 @@ def _render_growth_chart_png_large(sexo, tipo, valid_meds, titulo, eixo_x_campo,
     if not filtered_eixo:
         return None, []
 
-    z_cfg = [
-        ("z-3", "#8B0000", "--", 1.0, "-3"),
-        ("z-2", "#FF4500", "--", 1.1, "-2"),
-        ("z-1", "#4682B4", ":",  1.1, "-1"),
-        ("z0",  "#2E8B57", "-",  2.0, "Mediana"),
-        ("z1",  "#4682B4", ":",  1.1, "+1"),
-        ("z2",  "#FF4500", "--", 1.1, "+2"),
-        ("z3",  "#8B0000", "--", 1.0, "+3"),
-    ]
+    # Rótulos clínicos por tipo de índice
+    _z_labels_map = {
+        "peso_idade":     {"-3": "Muito baixo peso", "-2": "Baixo peso", "-1": "-1 DP",
+                           "0": "Mediana", "+1": "+1 DP", "+2": "Peso elevado", "+3": "+3 DP"},
+        "estatura_idade": {"-3": "Muito baixa estatura", "-2": "Baixa estatura", "-1": "-1 DP",
+                           "0": "Mediana", "+1": "+1 DP", "+2": "+2 DP", "+3": "+3 DP"},
+        "imc_idade":      {"-3": "Magreza acentuada", "-2": "Magreza", "-1": "-1 DP",
+                           "0": "Mediana", "+1": "Risco de sobrepeso", "+2": "Sobrepeso", "+3": "Obesidade"},
+        "peso_estatura":  {"-3": "Magreza acentuada", "-2": "Magreza", "-1": "-1 DP",
+                           "0": "Mediana", "+1": "+1 DP", "+2": "Sobrepeso", "+3": "Obesidade"},
+    }
+    _lbl = _z_labels_map.get(tipo, {"-3": "-3", "-2": "-2", "-1": "-1", "0": "Mediana", "+1": "+1", "+2": "+2", "+3": "+3"})
 
-    # Figura máxima para ocupar o painel inteiro
+    z_cfg = [
+        ("z-3", "#8B0000", "--", 1.0, _lbl["-3"]),
+        ("z-2", "#FF4500", "--", 1.1, _lbl["-2"]),
+        ("z-1", "#4682B4", ":",  1.1, _lbl["-1"]),
+        ("z0",  "#2E8B57", "-",  2.0, _lbl["0"]),
+        ("z1",  "#4682B4", ":",  1.1, _lbl["+1"]),
+        ("z2",  "#FF4500", "--", 1.1, _lbl["+2"]),
+        ("z3",  "#8B0000", "--", 1.0, _lbl["+3"]),
+    ]
     fig, ax = plt.subplots(figsize=(8.0, 5.8), dpi=150)
     fig.patch.set_facecolor("white")
     ax.set_facecolor("#FAFAFA")
@@ -1397,8 +1426,8 @@ def _render_growth_chart_png_large(sexo, tipo, valid_meds, titulo, eixo_x_campo,
     ax.set_ylabel(label_y, fontsize=9)
     ax.tick_params(labelsize=8)
     ax.grid(True, alpha=0.25, linewidth=0.5)
-    ax.legend(handles=legend_handles, fontsize=7, loc="upper left",
-              framealpha=0.75, ncol=2, borderpad=0.5, handlelength=1.4)
+    ax.legend(handles=legend_handles, fontsize=6.5, loc="upper left",
+              framealpha=0.75, ncol=1, borderpad=0.5, handlelength=1.4)
 
     plt.tight_layout(pad=0.3)
 
@@ -1463,9 +1492,9 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
     PANEL_W = PW / 2          # largura de cada painel
 
     # Padding interno de cada painel (espelhado pelo template)
-    PAD_X   = 20    # margens laterais mínimas — gráfico vai até quase a borda
-    PAD_TOP = 125   # bem abaixo do arco verde superior — evita sobreposição
-    PAD_BOT = 95    # bem acima do rodapé verde — texto não cai sobre as frutas
+    PAD_X   = 28    # margens laterais — conteúdo dentro da área branca
+    PAD_TOP = 148   # bem abaixo do arco verde superior — evita sobreposição
+    PAD_BOT = 110   # bem acima do rodapé verde — texto não cai sobre as frutas
 
     buf = io.BytesIO()
     c = rl_canvas.Canvas(buf, pagesize=landscape(A4))
@@ -1588,7 +1617,7 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
         c.setFillColorRGB(0.27, 0.55, 0.09)
         c.setFont("Helvetica", 6.5)
         c.drawCentredString(cx + cw / 2, cy_bot - 2,
-            f"Gerado em {_date.today().strftime('%d/%m/%Y')} | NutriMais  —  Pag. {page_num}")
+            f"Gerado em {_date.today().strftime('%d/%m/%Y')}  —  Pág. {page_num}")
 
     # ─────────────────────────────────────────────────────────
     # DADOS COMPARTILHADOS
@@ -1636,7 +1665,7 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
     offset_v = max(0, (area_esq_h - conteudo_esq_h) / 2)
     start_y = cy_top - offset_v
 
-    cur_y = draw_panel_title("FICHA DO ALUNO — NutriMais", cx_l, cw, start_y, size=11)
+    cur_y = draw_panel_title("FICHA DO ALUNO", cx_l, cw, start_y, size=11)
     c.setFillColorRGB(0.38, 0.1, 0.58)
     c.setFont("Helvetica", 7.5)
     c.drawCentredString(cx_l + cw / 2, cur_y, f"{nome_aluno}  |  {turma_nome}  |  {grupo_nome}")
@@ -1694,7 +1723,7 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
     offset_v2 = max(0, (area_dir_h - conteudo_dir_h) / 2)
     start_y2 = cy_top - offset_v2
 
-    cur_y2 = draw_panel_title("FICHA DO ALUNO — NutriMais", cx_r, cw_r, start_y2, size=11)
+    cur_y2 = draw_panel_title("FICHA DO ALUNO", cx_r, cw_r, start_y2, size=11)
     c.setFillColorRGB(0.38, 0.1, 0.58)
     c.setFont("Helvetica", 7.5)
     c.drawCentredString(cx_r + cw_r / 2, cur_y2, f"{nome_aluno}  |  {turma_nome}  |  {grupo_nome}")
@@ -1702,8 +1731,8 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
 
     cur_y2 = draw_section_bar("AFERICOES", cur_y2, cx_r, cw_r)
 
-    col_labels = ["Aferição", "Data", "Peso\n(kg)", "Altura\n(cm)", "IMC\n(kg/m²)", "Diagnóstico Nutricional"]
-    col_pcts   = [0.13, 0.13, 0.10, 0.12, 0.12, 0.40]
+    col_labels = ["Aferição", "Data", "Peso\n(kg)", "Altura\n(cm)", "IMC\n(kg/m²)"]
+    col_pcts   = [0.18, 0.20, 0.18, 0.20, 0.24]
     col_ws     = [cw_r * p for p in col_pcts]
     row_h_t    = ROW_H
     table_x    = cx_r
@@ -1744,14 +1773,10 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
             row_vals = [f"Afer. {idx+1}", format_date_pdf(med.get("data_medicao","")),
                         f"{peso:.1f}" if peso > 0 else "-",
                         f"{alt:.1f}" if alt > 0 else "-",
-                        imc_txt, diag]
+                        imc_txt]
             xi = table_x
             for ci, (val, cw_col) in enumerate(zip(row_vals, col_ws)):
-                if ci == 5:
-                    cor_d = diag_cores_map.get(diag, (0.3, 0.3, 0.3))
-                    c.setFillColorRGB(*cor_d); c.setFont("Helvetica-Bold", 7)
-                else:
-                    c.setFillColorRGB(0.15, 0.15, 0.15); c.setFont("Helvetica", 7)
+                c.setFillColorRGB(0.15, 0.15, 0.15); c.setFont("Helvetica", 7)
                 c.drawCentredString(xi + cw_col / 2, cur_y2 + 3, val)
                 xi += cw_col
             c.setStrokeColorRGB(0.8, 0.75, 0.9); c.setLineWidth(0.3)
@@ -1765,17 +1790,17 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
     # Texto OMS
     cur_y2 -= 8
     c.setFillColorRGB(0.15, 0.15, 0.15); c.setFont("Helvetica-BoldOblique", 8)
-    oms_txt = "Seguem as classificacoes de acordo com as curvas de crescimento da OMS."
+    oms_txt = "Seguem as classificações de acordo com as curvas de crescimento da OMS."
     c.drawString(cx_r, cur_y2, oms_txt)
     cur_y2 -= 12
 
     # Caixa aviso importante
     aviso_lines = [
-        ("IMPORTANTE: Essas classificacoes utilizam somente dados antropometricos", True),
-        ("(Peso, Altura e IMC), nao levando em consideracao outros parametros", False),
-        ("necessarios para diagnostico nutricional completo (exames bioquimicos,", False),
-        ("habitos alimentares). Nao substituem o diagnostico de profissional", False),
-        ("capacitado. Sao para fins de conhecimento e rastreamento nutricional.", False),
+        ("IMPORTANTE: Essas classificações utilizam somente dados antropométricos", True),
+        ("(Peso, Altura e IMC), não levando em consideração outros parâmetros", False),
+        ("necessários para diagnóstico nutricional completo (exames bioquímicos,", False),
+        ("hábitos alimentares). Não substituem o diagnóstico de profissional", False),
+        ("capacitado. São para fins de conhecimento e rastreamento nutricional.", False),
     ]
     av_total_h = av_lines_count * av_line_h + 14
     av_y_start = cur_y2
