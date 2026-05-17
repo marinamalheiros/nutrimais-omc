@@ -764,7 +764,6 @@ def can_view_group(user, grupo_nome=None):
     return False
 
 init_db()
-importar_gsheets_para_sqlite()
 
 if "user" not in st.session_state:
     st.session_state.user = None
@@ -1969,6 +1968,10 @@ def main_app():
         st.markdown(f"**{role_labels.get(user['role'], user['role'])}** | {user['username']}")
         if st.button("🚪 Sair", use_container_width=True):
             st.session_state.user = None
+            st.rerun()
+
+        if st.button("🔄 Sincronizar com Sheets", use_container_width=True):
+            importar_gsheets_para_sqlite()
             st.rerun()
         st.divider()
 
