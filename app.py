@@ -897,6 +897,128 @@ def admin_panel():
         st.success("✅ Nenhuma falha de sincronização registrada nesta sessão.")
 
     st.divider()
+    st.markdown("## 📥 Reimportar dados do Google Sheets")
+    st.markdown(
+        "Use este botão para **trazer de volta** todos os dados que estão no Google Sheets "
+        "para o banco local do app. Útil se o banco foi resetado/perdido e a importação "
+        "automática na inicialização não foi suficiente, ou se você quer forçar uma "
+        "reimportação completa mesmo com dados já existentes."
+    )
+    st.warning("⚠️ Isso **não apaga** dados existentes no banco local — apenas adiciona o que estiver faltando.")
+    if st.button("📥 Reimportar TUDO do Google Sheets → App", use_container_width=True):
+        with st.spinner("Lendo Google Sheets e populando banco local…"):
+            try:
+                # Força reimportação mesmo com banco não vazio
+                conn_re = get_db()
+                try:
+                    client_re = get_gsheets_client()
+                    url_re = st.secrets["connections"]["gsheets"]["spreadsheet"]
+                    url_re = url_re.split("?")[0].replace("/edit", "")
+                    spreadsheet_re = client_re.open_by_url(url_re)
+                except Exception as e_conn:
+                    st.error(f"❌ Não foi possível conectar ao Google Sheets: {e_conn}")
+                    conn_re.close()
+                    spreadsheet_re = None
+
+                if spreadsheet_re:
+                    total_re = 0
+                    erros_re = []
+                    for grupo_nome_re, lista_turmas_re in TURMAS_POR_GRUPO.items():
+                        grupo_row_re = conn_re.execute("SELECT id FROM grupos WHERE nome=?", (grupo_nome_re,)).fetchone()
+                        if not grupo_row_re:
+                            conn_re.execute("INSERT OR IGNORE INTO grupos (nome) VALUES (?)", (grupo_nome_re,))
+                            conn_re.commit()
+                            grupo_row_re = conn_re.execute("SELECT id FROM grupos WHERE nome=?", (grupo_nome_re,)).fetchone()
+                        grupo_id_re = grupo_row_re[0]
+                        incluir_com_re = (grupo_nome_re == "Instituto Mãe Lalu")
+
+                        for nome_turma_re in lista_turmas_re:
+                            try:
+                                ws_re = spreadsheet_re.worksheet(nome_turma_re)
+                            except Exception:
+                                continue
+                            dados_re = ws_re.get_all_values()
+                            if len(dados_re) < 2:
+                                continue
+                            rows_re = dados_re[1:]
+
+                            turma_row_re = conn_re.execute("SELECT id FROM turmas WHERE nome=? AND grupo_id=?", (nome_turma_re, grupo_id_re)).fetchone()
+                            if not turma_row_re:
+                                conn_re.execute("INSERT INTO turmas (nome, grupo_id) VALUES (?,?)", (nome_turma_re, grupo_id_re))
+                                conn_re.commit()
+                                turma_row_re = conn_re.execute("SELECT id FROM turmas WHERE nome=? AND grupo_id=?", (nome_turma_re, grupo_id_re)).fetchone()
+                            turma_id_re = turma_row_re[0]
+
+                            for row_re in rows_re:
+                                if not row_re or not row_re[0].strip():
+                                    continue
+                                nome_re = row_re[0].strip()
+                                sexo_re = row_re[1].strip() if len(row_re) > 1 else "M"
+                                nasc_re = row_re[2].strip() if len(row_re) > 2 else ""
+                                for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"):
+                                    try:
+                                        from datetime import datetime as _dtr
+                                        nasc_re = _dtr.strptime(nasc_re, fmt).strftime("%Y-%m-%d")
+                                        break
+                                    except:
+                                        pass
+                                if incluir_com_re:
+                                    com_re = row_re[3].strip() if len(row_re) > 3 else ""
+                                    med_start_re = 4
+                                else:
+                                    com_re = ""
+                                    med_start_re = 3
+
+                                existe_re = conn_re.execute("SELECT id FROM criancas WHERE nome=? AND turma_id=?", (nome_re, turma_id_re)).fetchone()
+                                if not existe_re:
+                                    conn_re.execute(
+                                        "INSERT INTO criancas (nome, sexo, data_nascimento, grupo_id, turma_id, comunidade) VALUES (?,?,?,?,?,?)",
+                                        (nome_re, sexo_re, nasc_re, grupo_id_re, turma_id_re, com_re or None))
+                                    conn_re.commit()
+                                    total_re += 1
+
+                                crianca_row_re = conn_re.execute("SELECT id FROM criancas WHERE nome=? AND turma_id=?", (nome_re, turma_id_re)).fetchone()
+                                if not crianca_row_re:
+                                    continue
+                                crianca_id_re = crianca_row_re[0]
+
+                                for i_m in range(4):
+                                    idx_b = med_start_re + i_m * 3
+                                    if idx_b + 2 >= len(row_re):
+                                        break
+                                    dm = row_re[idx_b].strip()
+                                    pm = row_re[idx_b + 1].strip().replace(",", ".")
+                                    am = row_re[idx_b + 2].strip().replace(",", ".")
+                                    if not dm or not pm or not am:
+                                        continue
+                                    try:
+                                        pf = float(pm); af = float(am)
+                                        if pf <= 0 or af <= 0:
+                                            continue
+                                        for fmt2 in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"):
+                                            try:
+                                                from datetime import datetime as _dtr2
+                                                dm = _dtr2.strptime(dm, fmt2).strftime("%Y-%m-%d")
+                                                break
+                                            except:
+                                                pass
+                                        existe_med_re = conn_re.execute(
+                                            "SELECT id FROM medicoes WHERE crianca_id=? AND data_medicao=?",
+                                            (crianca_id_re, dm)).fetchone()
+                                        if not existe_med_re:
+                                            conn_re.execute(
+                                                "INSERT INTO medicoes (crianca_id, data_medicao, peso, altura) VALUES (?,?,?,?)",
+                                                (crianca_id_re, dm, pf, af))
+                                            conn_re.commit()
+                                    except:
+                                        continue
+                    conn_re.close()
+                    st.success(f"✅ Reimportação concluída! {total_re} alunos novos adicionados ao banco local.")
+                    st.rerun()
+            except Exception as e_re:
+                st.error(f"❌ Erro na reimportação: {e_re}")
+
+    st.divider()
     st.info("""
     **📖 Niveis de acesso:**
     - **Visitante Geral:** Visualiza todos os grupos, sem alteracoes.
@@ -1057,78 +1179,157 @@ def render_growth_chart(sexo, tipo, medicoes_data, titulo, eixo_x_campo, eixo_y_
             unsafe_allow_html=True)
     return fig
 
-def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes):
+def _fig_to_png_bytes(fig):
+    """Converte figura Plotly para PNG em bytes usando kaleido ou orca."""
+    import io as _io
+    try:
+        return fig.to_image(format="png", width=900, height=420, scale=1.5)
+    except Exception:
+        return None
+
+
+def _render_growth_chart_fig(sexo, tipo, valid_meds, titulo, eixo_x_campo, eixo_y_campo, label_x, label_y):
+    """Gera e retorna a figura Plotly sem renderizar no Streamlit."""
+    try:
+        import plotly.graph_objects as go
+    except ImportError:
+        return None
+    ref = get_ref(sexo, tipo)
+    if not ref:
+        return None
+    pontos = []
+    for m in valid_meds:
+        vx = m["altura"] if eixo_x_campo == "altura" else m["meses"]
+        vy = m["peso"] if eixo_y_campo == "peso" else (m["altura"] if eixo_y_campo == "altura" else m["imc"])
+        if vx and vy and vx > 0 and vy > 0:
+            pontos.append({"vx": vx, "vy": vy, "data": m.get("data", "")})
+    if not pontos:
+        return None
+    vx_vals = [p["vx"] for p in pontos]
+    vx_min, vx_max = min(vx_vals), max(vx_vals)
+    margem = max((vx_max - vx_min) * 0.5, 10)
+    x_min = max(0, vx_min - margem)
+    x_max = vx_max + margem
+    eixo = ref.get("meses") if eixo_x_campo != "altura" else ref.get("altura")
+    if not eixo:
+        return None
+    filtered_eixo = [x for x in eixo if x >= x_min and x <= x_max]
+    if not filtered_eixo:
+        return None
+    z_keys = ["z-3", "z-2", "z-1", "z0", "z1", "z2", "z3"]
+    z_colors = {"z3": "#DC143C", "z2": "#FF8C00", "z1": "#4682B4", "z0": "#2E8B57",
+                "z-1": "#4682B4", "z-2": "#FF8C00", "z-3": "#DC143C"}
+    z_labels = {"z3": "+3", "z2": "+2", "z1": "+1", "z0": "Mediana",
+                "z-1": "-1", "z-2": "-2", "z-3": "-3"}
+    z_dash = {"z3": "dot", "z2": "dash", "z1": "dash", "z0": "solid",
+              "z-1": "dash", "z-2": "dash", "z-3": "dot"}
+    fig = go.Figure()
+    for zk in z_keys:
+        z_arr = ref[zk]
+        y_vals = [z_arr[eixo.index(x)] if x in eixo else None for x in filtered_eixo]
+        fig.add_trace(go.Scatter(x=filtered_eixo, y=y_vals, mode="lines", name=z_labels[zk],
+            line=dict(color=z_colors[zk], width=2 if zk == "z0" else 1, dash=z_dash[zk])))
+    fig.add_trace(go.Scatter(
+        x=[p["vx"] for p in pontos], y=[p["vy"] for p in pontos],
+        mode="markers+lines", name="Medicoes",
+        marker=dict(size=10, color="#7B1FA2", symbol="circle"),
+        line=dict(color="#7B1FA2", width=2)))
+    fig.update_layout(
+        title=dict(text=titulo, font=dict(size=14)),
+        xaxis_title=label_x, yaxis_title=label_y, height=420,
+        template="plotly_white", legend=dict(font=dict(size=9)),
+        margin=dict(l=50, r=20, t=40, b=50))
+    return fig
+
+
+def _desenhar_pagina_template(c, template_path, W, H):
     """
-    Gera um PDF da ficha cadastral da criança com o design colorido
-    (fundo amarelo/verde com frutas, similar ao template da Cozinha Experimental).
-    Retorna bytes do PDF.
+    Usa o template PDF como imagem de fundo na página atual do canvas.
+    Se o template não existir, desenha o fundo colorido padrão.
+    """
+    from reportlab.lib.utils import ImageReader
+    import io as _io
+
+    if template_path and os.path.exists(template_path):
+        try:
+            # Rasteriza a primeira página do template como PNG usando pypdf + pillow
+            from pypdf import PdfReader as _PdfReader
+            import subprocess, tempfile
+            # Tenta com pdftoppm (poppler) para melhor qualidade
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                tmp_path = tmp.name
+            result = subprocess.run(
+                ["pdftoppm", "-r", "150", "-png", "-singlefile", template_path, tmp_path.replace(".png", "")],
+                capture_output=True, timeout=10
+            )
+            final_path = tmp_path.replace(".png", "") + ".png"
+            if result.returncode == 0 and os.path.exists(final_path):
+                c.drawImage(ImageReader(final_path), 0, 0, width=W, height=H)
+                os.unlink(final_path)
+                return True
+        except Exception:
+            pass
+        # Fallback: tenta com pdf2image/pillow
+        try:
+            from pdf2image import convert_from_path
+            imgs = convert_from_path(template_path, dpi=150, first_page=1, last_page=1)
+            if imgs:
+                buf_img = _io.BytesIO()
+                imgs[0].save(buf_img, format="PNG")
+                buf_img.seek(0)
+                c.drawImage(ImageReader(buf_img), 0, 0, width=W, height=H)
+                return True
+        except Exception:
+            pass
+
+    # Fallback visual: fundo amarelo + borda verde arredondada
+    c.setFillColorRGB(0.98, 0.96, 0.78)
+    c.rect(0, 0, W, H, fill=1, stroke=0)
+    c.setFillColorRGB(1.0, 0.87, 0.2)
+    c.rect(0, 0, W, 130, fill=1, stroke=0)
+    c.rect(0, H - 130, W, 130, fill=1, stroke=0)
+    c.setStrokeColorRGB(0.47, 0.73, 0.18)
+    c.setLineWidth(14)
+    c.roundRect(28, 28, W - 56, H - 56, 40, fill=0, stroke=1)
+    return False
+
+
+def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_graficos=None):
+    """
+    Gera PDF completo da ficha cadastral:
+    - Página 1: template de fundo + dados cadastrais + tabela de medições
+    - Página 2 (se houver medições): curvas de crescimento OMS (4 gráficos)
+
+    template_path: caminho para 'template_ficha.pdf' na raiz do projeto.
+    valid_meds_graficos: lista de dicts {meses, peso, altura, imc, data} para os gráficos.
     """
     import io
-    from reportlab.pdfgen import canvas
+    from reportlab.pdfgen import canvas as rl_canvas
     from reportlab.lib.pagesizes import A4
-    from reportlab.lib import colors
-    from reportlab.lib.units import cm, mm
-    from reportlab.platypus import Table, TableStyle
     from reportlab.lib.utils import ImageReader
+    from datetime import date as _date
+
+    TEMPLATE_PATH = "template_ficha.pdf"
+    W, H = A4
+
+    # ── Área de conteúdo segura (dentro da borda do template) ──
+    PAD_X = 68       # margem lateral para não sobrepor a borda verde
+    PAD_TOP = 148    # margem do topo (abaixo das frutas e borda)
+    PAD_BOT = 148    # margem inferior
+    CONTENT_X = PAD_X
+    CONTENT_W = W - 2 * PAD_X
+    CONTENT_TOP = H - PAD_TOP    # y do topo da área de conteúdo
+    CONTENT_BOT = PAD_BOT        # y do rodapé da área de conteúdo
 
     buf = io.BytesIO()
-    W, H = A4  # 595 x 842 pts
-    c = canvas.Canvas(buf, pagesize=A4)
+    c = rl_canvas.Canvas(buf, pagesize=A4)
 
-    # ── FUNDO AMARELO ──
-    c.setFillColorRGB(1.0, 0.93, 0.3)
-    c.rect(0, 0, W, H, fill=1, stroke=0)
+    # ════════════════════════════════════════════
+    # PÁGINA 1 — Dados cadastrais + medições
+    # ════════════════════════════════════════════
+    _desenhar_pagina_template(c, TEMPLATE_PATH, W, H)
 
-    # ── ÁREA BRANCA CENTRAL (área de conteúdo) ──
-    margin_x = 40
-    margin_top = 160
-    margin_bottom = 140
-    content_x = margin_x
-    content_y = margin_bottom
-    content_w = W - 2 * margin_x
-    content_h = H - margin_top - margin_bottom
-
-    c.setFillColorRGB(1, 1, 1)
-    c.roundRect(content_x, content_y, content_w, content_h, 30, fill=1, stroke=0)
-
-    # ── BORDA VERDE em torno da área branca ──
-    c.setStrokeColorRGB(0.47, 0.73, 0.18)
-    c.setLineWidth(8)
-    c.roundRect(content_x, content_y, content_w, content_h, 30, fill=0, stroke=1)
-
-    # ── CABEÇALHO VERDE (topo) ──
-    c.setFillColorRGB(0.47, 0.73, 0.18)
-    c.roundRect(content_x, content_y + content_h - 60, content_w, 60, 20, fill=1, stroke=0)
-    # Retângulo extra para fechar cantos inferiores do cabeçalho
-    c.rect(content_x, content_y + content_h - 40, content_w, 40, fill=1, stroke=0)
-
-    # ── TÍTULO NO CABEÇALHO ──
-    c.setFillColorRGB(1, 1, 1)
-    c.setFont("Helvetica-Bold", 18)
-    c.drawCentredString(W / 2, content_y + content_h - 38, "FICHA CADASTRAL DO ALUNO")
-    c.setFont("Helvetica", 11)
-    c.drawCentredString(W / 2, content_y + content_h - 54, "NutriMais — Acompanhamento Nutricional")
-
-    # ── CONTEÚDO DA FICHA ──
-    text_x = content_x + 30
-    cur_y = content_y + content_h - 90
-
-    def draw_label_value(label, value, y, label_color=(0.42, 0.1, 0.6), value_color=(0.1, 0.1, 0.1)):
-        c.setFillColorRGB(*label_color)
-        c.setFont("Helvetica-Bold", 10)
-        c.drawString(text_x, y, label)
-        c.setFillColorRGB(*value_color)
-        c.setFont("Helvetica", 10)
-        c.drawString(text_x + 130, y, str(value) if value else "-")
-
-    def draw_section_title(title, y):
-        c.setFillColorRGB(0.47, 0.73, 0.18)
-        c.roundRect(text_x - 8, y - 4, content_w - 44, 22, 6, fill=1, stroke=0)
-        c.setFillColorRGB(1, 1, 1)
-        c.setFont("Helvetica-Bold", 11)
-        c.drawString(text_x, y + 4, title)
-        return y - 10
-
+    # ── Helpers ──
     def format_date_pdf(d):
         if not d:
             return "-"
@@ -1140,140 +1341,222 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes):
             pass
         return str(d)
 
-    # Dados Pessoais
-    cur_y = draw_section_title("📋  DADOS PESSOAIS", cur_y)
+    def draw_section_bar(label, y):
+        c.setFillColorRGB(0.42, 0.68, 0.15)
+        c.roundRect(CONTENT_X, y - 3, CONTENT_W, 20, 5, fill=1, stroke=0)
+        c.setFillColorRGB(1, 1, 1)
+        c.setFont("Helvetica-Bold", 10)
+        c.drawString(CONTENT_X + 8, y + 3, label)
+        return y - 26
+
+    def draw_field(label, value, x, y, lbl_w=120):
+        c.setFillColorRGB(0.38, 0.1, 0.58)
+        c.setFont("Helvetica-Bold", 9)
+        c.drawString(x, y, label)
+        c.setFillColorRGB(0.1, 0.1, 0.1)
+        c.setFont("Helvetica", 9)
+        c.drawString(x + lbl_w, y, str(value) if value else "-")
+
+    cur_y = CONTENT_TOP
+
+    # ── Título principal ──
+    c.setFillColorRGB(0.27, 0.55, 0.09)
+    c.setFont("Helvetica-Bold", 15)
+    c.drawCentredString(W / 2, cur_y, "FICHA CADASTRAL DO ALUNO")
+    cur_y -= 16
+    c.setFillColorRGB(0.42, 0.1, 0.6)
+    c.setFont("Helvetica", 9)
+    c.drawCentredString(W / 2, cur_y, "NutriMais — Acompanhamento Nutricional")
     cur_y -= 22
+
+    # ── Dados Pessoais ──
+    cur_y = draw_section_bar("DADOS PESSOAIS", cur_y)
     sexo_label = "Masculino" if crianca.get("sexo") == "M" else "Feminino"
-    draw_label_value("Nome:", crianca.get("nome", "-"), cur_y)
-    cur_y -= 18
-    draw_label_value("Sexo:", sexo_label, cur_y)
-    cur_y -= 18
-    draw_label_value("Data de Nascimento:", format_date_pdf(crianca.get("data_nascimento")), cur_y)
-    cur_y -= 18
-    draw_label_value("Grupo:", grupo_nome, cur_y)
-    cur_y -= 18
-    draw_label_value("Turma:", turma_nome, cur_y)
+    col2_x = CONTENT_X + CONTENT_W / 2
+
+    draw_field("Nome:", crianca.get("nome", "-"), CONTENT_X, cur_y, lbl_w=50)
+    cur_y -= 16
+    draw_field("Sexo:", sexo_label, CONTENT_X, cur_y)
+    draw_field("Data de Nascimento:", format_date_pdf(crianca.get("data_nascimento")), col2_x, cur_y)
+    cur_y -= 16
+    draw_field("Grupo:", grupo_nome, CONTENT_X, cur_y)
+    draw_field("Turma:", turma_nome, col2_x, cur_y)
     if crianca.get("comunidade"):
-        cur_y -= 18
-        draw_label_value("Comunidade:", crianca.get("comunidade"), cur_y)
+        cur_y -= 16
+        draw_field("Comunidade:", crianca.get("comunidade"), CONTENT_X, cur_y)
+    cur_y -= 22
 
-    cur_y -= 28
+    # ── Tabela de Medições ──
+    cur_y = draw_section_bar("MEDICOES ANTROPOMETRICAS", cur_y)
 
-    # Medições
-    cur_y = draw_section_title("📊  MEDIÇÕES ANTROPOMÉTRICAS", cur_y)
-    cur_y -= 26
+    col_labels = ["Medicao", "Data", "Peso (kg)", "Altura (cm)", "IMC (kg/m2)", "Diagnostico Nutricional"]
+    col_widths_pct = [0.13, 0.13, 0.12, 0.13, 0.13, 0.36]
+    col_widths = [CONTENT_W * p for p in col_widths_pct]
+    row_h = 16
+    table_x = CONTENT_X
+
+    # Cabeçalho
+    c.setFillColorRGB(0.42, 0.1, 0.6)
+    c.rect(table_x, cur_y - 3, CONTENT_W, row_h, fill=1, stroke=0)
+    c.setFillColorRGB(1, 1, 1)
+    c.setFont("Helvetica-Bold", 7.5)
+    xi = table_x
+    for lbl, cw in zip(col_labels, col_widths):
+        c.drawCentredString(xi + cw / 2, cur_y + 3, lbl)
+        xi += cw
+    cur_y -= row_h + 2
+
+    diag_cores = {
+        "Magreza acentuada":          (0.55, 0, 0),
+        "Magreza":                    (1, 0.27, 0),
+        "Eutrofia":                   (0.18, 0.55, 0.34),
+        "Peso adequado para a idade": (0.18, 0.55, 0.34),
+        "Risco de sobrepeso":         (0.85, 0.7, 0),
+        "Sobrepeso":                  (1, 0.55, 0),
+        "Obesidade":                  (1, 0, 0),
+        "Obesidade grave":            (0.55, 0, 0),
+    }
 
     if medicoes:
-        # Cabeçalho da tabela
-        col_labels = ["Medição", "Data", "Peso (kg)", "Altura (cm)", "IMC (kg/m²)", "Diagnóstico"]
-        col_widths = [60, 70, 70, 70, 70, 120]
-        table_x = text_x - 8
-
-        # Desenha cabeçalho da tabela
-        x_cur = table_x
-        c.setFillColorRGB(0.42, 0.1, 0.6)
-        total_tw = sum(col_widths)
-        c.rect(table_x, cur_y - 4, total_tw, 18, fill=1, stroke=0)
-        c.setFillColorRGB(1, 1, 1)
-        c.setFont("Helvetica-Bold", 8)
-        for ci, (lbl, cw) in enumerate(zip(col_labels, col_widths)):
-            c.drawCentredString(x_cur + cw / 2, cur_y + 2, lbl)
-            x_cur += cw
-        cur_y -= 20
-
         for idx, med in enumerate(medicoes):
-            if cur_y < content_y + 50:
+            if cur_y < CONTENT_BOT + 20:
                 break
-            peso = med.get("peso", 0)
-            alt = med.get("altura", 0)
+            peso = med.get("peso", 0) or 0
+            alt  = med.get("altura", 0) or 0
             if peso > 0 and alt > 0:
                 imc = peso / pow(alt / 100, 2)
                 imc_txt = f"{imc:.2f}"
-                # Classificação simplificada por IMC
-                if imc < 14:
-                    diag = "Magreza acentuada"
-                    diag_cor = (0.55, 0, 0)
-                elif imc < 17:
-                    diag = "Magreza"
-                    diag_cor = (1, 0.27, 0)
-                elif imc < 25:
-                    diag = "Eutrofia"
-                    diag_cor = (0.18, 0.55, 0.34)
-                elif imc < 30:
-                    diag = "Sobrepeso"
-                    diag_cor = (1, 0.55, 0)
+                meses_m = calcular_idade_meses(crianca.get("data_nascimento","2000-01-01"), med.get("data_medicao","2000-01-01"))
+                ref_imc = get_ref(crianca.get("sexo","M"), "imc_idade")
+                if ref_imc and 0 <= meses_m <= 228:
+                    lim = obter_limites(ref_imc, meses_m, "meses")
+                    diag, _ = classificar_nutricional(imc, lim, "imc_idade", meses_m)
                 else:
-                    diag = "Obesidade"
-                    diag_cor = (1, 0, 0)
+                    diag = "Fora da faixa"
             else:
                 imc_txt = "-"
-                diag = "Sem medição"
-                diag_cor = (0.5, 0.5, 0.5)
+                diag = "Sem medicao"
 
-            bg = (0.97, 0.94, 1.0) if idx % 2 == 0 else (1, 1, 1)
+            bg = (0.95, 0.91, 1.0) if idx % 2 == 0 else (1, 1, 1)
             c.setFillColorRGB(*bg)
-            c.rect(table_x, cur_y - 4, total_tw, 18, fill=1, stroke=0)
+            c.rect(table_x, cur_y - 3, CONTENT_W, row_h, fill=1, stroke=0)
 
             row_vals = [
-                f"Medição {idx + 1}",
+                f"Medicao {idx + 1}",
                 format_date_pdf(med.get("data_medicao", "")),
                 f"{peso:.1f}" if peso > 0 else "-",
                 f"{alt:.1f}" if alt > 0 else "-",
                 imc_txt,
-                diag
+                diag,
             ]
-            x_cur = table_x
+            xi = table_x
             for ci, (val, cw) in enumerate(zip(row_vals, col_widths)):
                 if ci == 5:
-                    c.setFillColorRGB(*diag_cor)
-                    c.setFont("Helvetica-Bold", 7.5)
+                    cor_d = diag_cores.get(diag, (0.3, 0.3, 0.3))
+                    c.setFillColorRGB(*cor_d)
+                    c.setFont("Helvetica-Bold", 7)
                 else:
                     c.setFillColorRGB(0.15, 0.15, 0.15)
-                    c.setFont("Helvetica", 8)
-                c.drawCentredString(x_cur + cw / 2, cur_y + 2, val)
-                x_cur += cw
+                    c.setFont("Helvetica", 7.5)
+                c.drawCentredString(xi + cw / 2, cur_y + 3, val)
+                xi += cw
 
-            # Linha separadora
-            c.setStrokeColorRGB(0.85, 0.8, 0.92)
-            c.setLineWidth(0.5)
-            c.line(table_x, cur_y - 4, table_x + total_tw, cur_y - 4)
-
-            cur_y -= 20
+            c.setStrokeColorRGB(0.8, 0.75, 0.9)
+            c.setLineWidth(0.4)
+            c.line(table_x, cur_y - 3, table_x + CONTENT_W, cur_y - 3)
+            cur_y -= row_h + 1
     else:
         c.setFillColorRGB(0.5, 0.5, 0.5)
-        c.setFont("Helvetica-Oblique", 10)
-        c.drawString(text_x, cur_y, "Nenhuma medição registrada.")
-        cur_y -= 20
+        c.setFont("Helvetica-Oblique", 9)
+        c.drawString(table_x + 8, cur_y, "Nenhuma medicao registrada.")
+        cur_y -= 16
 
-    # ── RODAPÉ ──
-    cur_y -= 16
-    c.setFillColorRGB(0.47, 0.73, 0.18)
-    c.setFont("Helvetica", 8)
-    from datetime import date as _date
-    c.drawCentredString(W / 2, content_y + 16,
-        f"Gerado em {_date.today().strftime('%d/%m/%Y')} | NutriMais — Acompanhamento Nutricional")
+    # ── Aviso/Rodapé na página 1 ──
+    aviso = ("Importante: As classificacoes utilizam somente dados antropometricos (Peso, Estatura e IMC). "
+             "Nao substituem diagnostico de profissional habilitado.")
+    c.setFillColorRGB(0.4, 0.3, 0.0)
+    c.setFont("Helvetica-Oblique", 6.5)
+    # Quebra em duas linhas se necessário
+    c.drawString(CONTENT_X, CONTENT_BOT + 8, aviso[:100])
+    if len(aviso) > 100:
+        c.drawString(CONTENT_X, CONTENT_BOT + 1, aviso[100:])
 
-    # ── DECORAÇÕES: círculos coloridos nas bordas (simulando frutas) ──
-    frutas_cores = [
-        (1.0, 0.51, 0.0),   # laranja
-        (0.86, 0.08, 0.24),  # morango
-        (0.18, 0.55, 0.34),  # verde
-        (0.96, 0.26, 0.21),  # maçã
-        (1.0, 0.76, 0.03),   # abacaxi
-        (0.56, 0.27, 0.68),  # uva
-        (0.13, 0.59, 0.95),  # mirtilo
-        (1.0, 0.4, 0.4),     # melancia
-    ]
-    positions_top = [(55, H - 50), (100, H - 38), (145, H - 50), (W - 55, H - 50)]
-    positions_bot = [(55, 50), (100, 38), (W - 80, 45), (W - 55, 58)]
-    for i, (px, py) in enumerate(positions_top + positions_bot):
-        col = frutas_cores[i % len(frutas_cores)]
-        c.setFillColorRGB(*col)
-        c.circle(px, py, 16, fill=1, stroke=0)
-        c.setFillColorRGB(1, 1, 1)
-        c.setFont("Helvetica-Bold", 10)
-        emojis = ["🍊", "🍓", "🍏", "🍎", "🍍", "🍇", "🫐", "🍉"]
-        c.drawCentredString(px, py - 4, emojis[i % len(emojis)])
+    c.setFillColorRGB(0.27, 0.55, 0.09)
+    c.setFont("Helvetica", 7)
+    c.drawCentredString(W / 2, CONTENT_BOT - 10,
+        f"Gerado em {_date.today().strftime('%d/%m/%Y')} | NutriMais")
+
+    # ════════════════════════════════════════════
+    # PÁGINA 2 — Curvas de Crescimento OMS
+    # ════════════════════════════════════════════
+    if valid_meds_graficos and crianca.get("sexo"):
+        c.showPage()
+        _desenhar_pagina_template(c, TEMPLATE_PATH, W, H)
+
+        cur_y2 = CONTENT_TOP
+        c.setFillColorRGB(0.27, 0.55, 0.09)
+        c.setFont("Helvetica-Bold", 13)
+        c.drawCentredString(W / 2, cur_y2, "CURVAS DE CRESCIMENTO OMS")
+        cur_y2 -= 14
+        c.setFillColorRGB(0.3, 0.3, 0.3)
+        c.setFont("Helvetica", 8)
+        c.drawCentredString(W / 2, cur_y2, f"{crianca.get('nome','')}  |  {grupo_nome}  |  {turma_nome}")
+        cur_y2 -= 16
+
+        graficos_def = [
+            {"tipo": "peso_idade",    "titulo": "Peso x Idade",     "eixo_x": "meses",  "eixo_y": "peso",   "lx": "Idade (meses)", "ly": "Peso (kg)"},
+            {"tipo": "estatura_idade","titulo": "Estatura x Idade", "eixo_x": "meses",  "eixo_y": "altura", "lx": "Idade (meses)", "ly": "Estatura (cm)"},
+            {"tipo": "imc_idade",     "titulo": "IMC x Idade",      "eixo_x": "meses",  "eixo_y": "imc",    "lx": "Idade (meses)", "ly": "IMC (kg/m2)"},
+            {"tipo": "peso_estatura", "titulo": "Peso x Estatura",  "eixo_x": "altura", "eixo_y": "peso",   "lx": "Estatura (cm)", "ly": "Peso (kg)"},
+        ]
+
+        img_w = (CONTENT_W - 8) / 2
+        img_h = img_w * 0.48    # proporção paisagem
+        col_xs = [CONTENT_X, CONTENT_X + img_w + 8]
+        row = 0
+
+        for gi, g in enumerate(graficos_def):
+            ref_check = get_ref(crianca["sexo"], g["tipo"])
+            valid_for = [m for m in valid_meds_graficos
+                         if (m["altura"] if g["eixo_x"] == "altura" else m["meses"]) > 0]
+            if not ref_check or not valid_for:
+                continue
+
+            fig = _render_growth_chart_fig(
+                crianca["sexo"], g["tipo"], valid_meds_graficos,
+                g["titulo"], g["eixo_x"], g["eixo_y"], g["lx"], g["ly"])
+            if not fig:
+                continue
+
+            png = _fig_to_png_bytes(fig)
+            if not png:
+                continue
+
+            col_idx = gi % 2
+            if col_idx == 0 and gi > 0:
+                row += 1
+            img_y = cur_y2 - (row + 1) * (img_h + 10)
+
+            if img_y < CONTENT_BOT + 10:
+                break
+
+            import io as _io2
+            img_buf = _io2.BytesIO(png)
+            c.drawImage(ImageReader(img_buf),
+                        col_xs[col_idx], img_y,
+                        width=img_w, height=img_h,
+                        preserveAspectRatio=True, mask="auto")
+
+            # Rótulo do gráfico
+            c.setFillColorRGB(0.27, 0.4, 0.09)
+            c.setFont("Helvetica-Bold", 7)
+            c.drawCentredString(col_xs[col_idx] + img_w / 2, img_y + img_h + 1, g["titulo"])
+
+        # Rodapé página 2
+        c.setFillColorRGB(0.27, 0.55, 0.09)
+        c.setFont("Helvetica", 7)
+        c.drawCentredString(W / 2, CONTENT_BOT - 10,
+            f"Gerado em {_date.today().strftime('%d/%m/%Y')} | NutriMais")
 
     c.save()
     buf.seek(0)
@@ -1750,12 +2033,20 @@ def main_app():
                     meds_para_pdf = conn.execute(
                         "SELECT data_medicao, peso, altura FROM medicoes WHERE crianca_id=? AND peso>0 AND altura>0 ORDER BY data_medicao",
                         (crianca_sel["id"],)).fetchall()
+                    meds_para_pdf_list = [dict(m) for m in meds_para_pdf]
+                    # Monta valid_meds para os gráficos
+                    valid_meds_pdf = []
+                    for m in meds_para_pdf_list:
+                        meses_v = calcular_idade_meses(crianca_sel["data_nascimento"], m["data_medicao"])
+                        imc_v = round(m["peso"] / pow(m["altura"] / 100, 2) * 100) / 100
+                        valid_meds_pdf.append({"meses": meses_v, "peso": m["peso"], "altura": m["altura"], "imc": imc_v, "data": m["data_medicao"]})
                     try:
                         pdf_bytes = gerar_ficha_pdf(
                             crianca=crianca_sel,
                             grupo_nome=grupo_sel["nome"],
                             turma_nome=turma_sel["nome"],
-                            medicoes=[dict(m) for m in meds_para_pdf]
+                            medicoes=meds_para_pdf_list,
+                            valid_meds_graficos=valid_meds_pdf if valid_meds_pdf else None
                         )
                         nome_arquivo_pdf = f"ficha_{crianca_sel['nome'].replace(' ', '_').lower()}.pdf"
                         st.download_button(
