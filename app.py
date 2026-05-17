@@ -1642,7 +1642,7 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
     c.drawCentredString(cx_l + cw / 2, cur_y, f"{nome_aluno}  |  {turma_nome}  |  {grupo_nome}")
     cur_y -= 10
 
-    cur_y = draw_section_bar("1.1  DADOS CADASTRAIS DO ALUNO", cur_y, cx_l, cw)
+    cur_y = draw_section_bar("DADOS DO ALUNO", cur_y, cx_l, cw)
 
     # Foto (canto direito do painel)
     foto_x = cx_l + cw - FOTO_W
@@ -1700,7 +1700,7 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
     c.drawCentredString(cx_r + cw_r / 2, cur_y2, f"{nome_aluno}  |  {turma_nome}  |  {grupo_nome}")
     cur_y2 -= 10
 
-    cur_y2 = draw_section_bar("1.2  AFERICOES ANTROPOMETRICAS", cur_y2, cx_r, cw_r)
+    cur_y2 = draw_section_bar("AFERICOES", cur_y2, cx_r, cw_r)
 
     col_labels = ["Aferição", "Data", "Peso\n(kg)", "Altura\n(cm)", "IMC\n(kg/m²)", "Diagnóstico Nutricional"]
     col_pcts   = [0.13, 0.13, 0.10, 0.12, 0.12, 0.40]
@@ -1824,16 +1824,10 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
                 valid_for = [m for m in valid_meds_graficos
                              if (m["altura"] if g["eixo_x"] == "altura" else m["meses"]) > 0]
 
-                # Título e subtítulo
-                cur_p = draw_panel_title(g["titulo"], cx_p, cw_p, cy_top_p, size=11)
-                c.setFillColorRGB(0.38, 0.1, 0.58)
-                c.setFont("Helvetica", 7.5)
-                c.drawCentredString(cx_p + cw_p / 2, cur_p, subtitulo_g)
-                cur_p -= 8
-
                 if not ref_check or not valid_for:
-                    c.setFillColorRGB(0.5, 0.5, 0.5); c.setFont("Helvetica-Oblique", 8)
-                    c.drawCentredString(cx_p + cw_p / 2, cy_top_p - 40, "Dados insuficientes para este grafico.")
+                    mid_y = (cy_top_p + cy_bot_p) / 2
+                    c.setFillColorRGB(0.5, 0.5, 0.5); c.setFont("Helvetica-Oblique", 9)
+                    c.drawCentredString(cx_p + cw_p / 2, mid_y, "Dados insuficientes para este grafico.")
                     draw_footer_panel(cx_p, cw_p, cy_bot_p, page_num, gi + 1)
                     continue
 
@@ -1845,41 +1839,66 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
                     draw_footer_panel(cx_p, cw_p, cy_bot_p, page_num, gi + 1)
                     continue
 
-                # Tamanho dos badges de diagnóstico (fonte maior)
-                DIAG_FONT  = 8.5
-                BADGE_H    = 15
-                BADGE_GAP  = 4
-                DIAG_AREA_H = len(diagnosticos) * (BADGE_H + BADGE_GAP) + 6
+                # ── Constantes de layout ──
+                DIAG_FONT   = 8.5
+                BADGE_H     = 15
+                BADGE_GAP   = 4
+                TITULO_H    = 20   # texto do título
+                LINHA_H     = 6    # linha separadora + gap
+                SUBTIT_H    = 16   # subtítulo em negrito
+                GAP_SUB_IMG = 6    # gap entre subtítulo e gráfico
+                GAP_IMG_DIAG = 8   # gap entre gráfico e diagnósticos
+                DIAG_AREA_H = len(diagnosticos) * (BADGE_H + BADGE_GAP)
 
-                # Área total disponível entre título e rodapé
-                total_area = cy_top_p - cur_p - cy_bot_p
-                img_h = total_area - DIAG_AREA_H - 10   # 10 pt de gap entre gráfico e badges
+                header_h  = TITULO_H + LINHA_H + SUBTIT_H + GAP_SUB_IMG
+                footer_h  = DIAG_AREA_H + GAP_IMG_DIAG
+
+                # Área útil total
+                area_util = cy_top_p - cy_bot_p
+
+                # Gráfico ocupa tudo que restar
+                img_h = area_util - header_h - footer_h
                 img_h = max(img_h, 150)
 
-                # Centraliza verticalmente: distribui espaço sobrando igualmente acima e abaixo
-                conteudo_h = img_h + DIAG_AREA_H + 10
-                margem_v = max(0, (total_area - conteudo_h) / 2)
-                img_y = cy_top_p - cur_p - margem_v - img_h
+                # Bloco completo centralizado verticalmente
+                bloco_h  = header_h + img_h + footer_h
+                margem_v = max(0, (area_util - bloco_h) / 2)
+                bloco_top = cy_top_p - margem_v
 
-                # Gráfico ocupa largura total do painel (cx_p até borda)
-                img_x = cx_p
-                img_w = cw_p
+                # ── Título ──
+                titulo_y = bloco_top - TITULO_H + 4
+                c.setFillColorRGB(0.27, 0.55, 0.09)
+                c.setFont("Helvetica-Bold", 11)
+                c.drawCentredString(cx_p + cw_p / 2, titulo_y, g["titulo"])
 
+                # Linha separadora
+                linha_y = titulo_y - LINHA_H
+                c.setStrokeColorRGB(0.42, 0.68, 0.15)
+                c.setLineWidth(1.2)
+                c.line(cx_p, linha_y, cx_p + cw_p, linha_y)
+
+                # ── Subtítulo em negrito e fonte maior ──
+                subtit_y = linha_y - SUBTIT_H + 4
+                c.setFillColorRGB(0.28, 0.07, 0.44)
+                c.setFont("Helvetica-Bold", 9.5)
+                c.drawCentredString(cx_p + cw_p / 2, subtit_y, subtitulo_g)
+
+                # ── Gráfico ──
+                img_y = subtit_y - GAP_SUB_IMG - img_h
                 img_buf = _io4.BytesIO(png)
-                c.drawImage(ImageReader(img_buf), img_x, img_y,
-                            width=img_w, height=img_h,
+                c.drawImage(ImageReader(img_buf), cx_p, img_y,
+                            width=cw_p, height=img_h,
                             preserveAspectRatio=False, mask="auto")
 
-                # Diagnósticos abaixo do gráfico — fonte maior, badge maior
-                diag_y = img_y - 6
+                # ── Diagnósticos abaixo do gráfico ──
+                diag_y = img_y - GAP_IMG_DIAG
                 for diag_item in diagnosticos:
-                    if diag_y < cy_bot_p + 8:
+                    if diag_y < cy_bot_p + 4:
                         break
                     cor_rgb = hex_to_rgb(diag_item["cor_hex"])
                     cor_txt = (0.1, 0.1, 0.1) if diag_item["cor_hex"].upper() in ("#FFD700", "#FFC713") else (1, 1, 1)
-                    badge_w = cw_p
                     c.setFillColorRGB(*cor_rgb)
-                    c.roundRect(cx_p, diag_y - 2, badge_w, BADGE_H, 4, fill=1, stroke=0)
+                    c.roundRect(cx_p, diag_y - 2, cw_p, BADGE_H, 4, fill=1, stroke=0)
                     label_txt = diag_item["label"]
                     status_txt = diag_item["status"]
                     c.setFillColorRGB(*cor_txt)
