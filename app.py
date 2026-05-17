@@ -1179,67 +1179,94 @@ def render_growth_chart(sexo, tipo, medicoes_data, titulo, eixo_x_campo, eixo_y_
             unsafe_allow_html=True)
     return fig
 
-def _fig_to_png_bytes(fig):
-    """Converte figura Plotly para PNG em bytes usando kaleido ou orca."""
+def _render_growth_chart_png(sexo, tipo, valid_meds, titulo, eixo_x_campo, eixo_y_campo, label_x, label_y):
+    """
+    Gera o gráfico de curva de crescimento OMS usando matplotlib e retorna PNG em bytes.
+    Não depende de kaleido — funciona em qualquer ambiente cloud.
+    Retorna None se não houver dados ou referência disponível.
+    """
     import io as _io
     try:
-        return fig.to_image(format="png", width=900, height=420, scale=1.5)
-    except Exception:
-        return None
-
-
-def _render_growth_chart_fig(sexo, tipo, valid_meds, titulo, eixo_x_campo, eixo_y_campo, label_x, label_y):
-    """Gera e retorna a figura Plotly sem renderizar no Streamlit."""
-    try:
-        import plotly.graph_objects as go
+        import matplotlib
+        matplotlib.use("Agg")  # backend sem janela, obrigatório em servidor
+        import matplotlib.pyplot as plt
+        import matplotlib.lines as mlines
     except ImportError:
         return None
+
     ref = get_ref(sexo, tipo)
     if not ref:
         return None
+
+    # Coleta pontos do aluno
     pontos = []
     for m in valid_meds:
         vx = m["altura"] if eixo_x_campo == "altura" else m["meses"]
         vy = m["peso"] if eixo_y_campo == "peso" else (m["altura"] if eixo_y_campo == "altura" else m["imc"])
         if vx and vy and vx > 0 and vy > 0:
-            pontos.append({"vx": vx, "vy": vy, "data": m.get("data", "")})
+            pontos.append((vx, vy))
     if not pontos:
         return None
-    vx_vals = [p["vx"] for p in pontos]
+
+    vx_vals = [p[0] for p in pontos]
     vx_min, vx_max = min(vx_vals), max(vx_vals)
     margem = max((vx_max - vx_min) * 0.5, 10)
     x_min = max(0, vx_min - margem)
     x_max = vx_max + margem
+
     eixo = ref.get("meses") if eixo_x_campo != "altura" else ref.get("altura")
     if not eixo:
         return None
-    filtered_eixo = [x for x in eixo if x >= x_min and x <= x_max]
+    filtered_eixo = [x for x in eixo if x_min <= x <= x_max]
     if not filtered_eixo:
         return None
-    z_keys = ["z-3", "z-2", "z-1", "z0", "z1", "z2", "z3"]
-    z_colors = {"z3": "#DC143C", "z2": "#FF8C00", "z1": "#4682B4", "z0": "#2E8B57",
-                "z-1": "#4682B4", "z-2": "#FF8C00", "z-3": "#DC143C"}
-    z_labels = {"z3": "+3", "z2": "+2", "z1": "+1", "z0": "Mediana",
-                "z-1": "-1", "z-2": "-2", "z-3": "-3"}
-    z_dash = {"z3": "dot", "z2": "dash", "z1": "dash", "z0": "solid",
-              "z-1": "dash", "z-2": "dash", "z-3": "dot"}
-    fig = go.Figure()
-    for zk in z_keys:
+
+    z_cfg = [
+        ("z-3", "#8B0000", "--", 0.8, "-3"),
+        ("z-2", "#FF4500", "--", 0.9, "-2"),
+        ("z-1", "#4682B4", ":",  0.9, "-1"),
+        ("z0",  "#2E8B57", "-",  1.5, "Mediana"),
+        ("z1",  "#4682B4", ":",  0.9, "+1"),
+        ("z2",  "#FF4500", "--", 0.9, "+2"),
+        ("z3",  "#8B0000", "--", 0.8, "+3"),
+    ]
+
+    fig, ax = plt.subplots(figsize=(5.2, 3.0), dpi=130)
+    fig.patch.set_facecolor("white")
+    ax.set_facecolor("#FAFAFA")
+
+    legend_handles = []
+    for zk, cor, ls, lw, lbl in z_cfg:
         z_arr = ref[zk]
-        y_vals = [z_arr[eixo.index(x)] if x in eixo else None for x in filtered_eixo]
-        fig.add_trace(go.Scatter(x=filtered_eixo, y=y_vals, mode="lines", name=z_labels[zk],
-            line=dict(color=z_colors[zk], width=2 if zk == "z0" else 1, dash=z_dash[zk])))
-    fig.add_trace(go.Scatter(
-        x=[p["vx"] for p in pontos], y=[p["vy"] for p in pontos],
-        mode="markers+lines", name="Medicoes",
-        marker=dict(size=10, color="#7B1FA2", symbol="circle"),
-        line=dict(color="#7B1FA2", width=2)))
-    fig.update_layout(
-        title=dict(text=titulo, font=dict(size=14)),
-        xaxis_title=label_x, yaxis_title=label_y, height=420,
-        template="plotly_white", legend=dict(font=dict(size=9)),
-        margin=dict(l=50, r=20, t=40, b=50))
-    return fig
+        y_vals = [z_arr[eixo.index(x)] for x in filtered_eixo if x in eixo]
+        x_vals = [x for x in filtered_eixo if x in eixo]
+        if y_vals:
+            ax.plot(x_vals, y_vals, color=cor, linestyle=ls, linewidth=lw, alpha=0.85)
+            legend_handles.append(mlines.Line2D([], [], color=cor, linestyle=ls, linewidth=lw, label=lbl))
+
+    # Pontos do aluno
+    px = [p[0] for p in pontos]
+    py = [p[1] for p in pontos]
+    ax.plot(px, py, color="#7B1FA2", linewidth=1.4, zorder=5)
+    ax.scatter(px, py, color="#7B1FA2", s=40, zorder=6, label="Medicoes")
+    legend_handles.append(mlines.Line2D([], [], color="#7B1FA2", marker="o", linestyle="-",
+                                         markersize=4, linewidth=1.4, label="Medicoes"))
+
+    ax.set_title(titulo, fontsize=8, fontweight="bold", color="#333333", pad=4)
+    ax.set_xlabel(label_x, fontsize=6.5)
+    ax.set_ylabel(label_y, fontsize=6.5)
+    ax.tick_params(labelsize=6)
+    ax.grid(True, alpha=0.25, linewidth=0.5)
+    ax.legend(handles=legend_handles, fontsize=5, loc="upper left",
+              framealpha=0.7, ncol=2, borderpad=0.4, handlelength=1.2)
+
+    plt.tight_layout(pad=0.4)
+
+    buf_png = _io.BytesIO()
+    fig.savefig(buf_png, format="png", dpi=130, bbox_inches="tight")
+    plt.close(fig)
+    buf_png.seek(0)
+    return buf_png.read()
 
 
 def _desenhar_pagina_template(c, template_path, W, H):
@@ -1522,13 +1549,9 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
             if not ref_check or not valid_for:
                 continue
 
-            fig = _render_growth_chart_fig(
+            png = _render_growth_chart_png(
                 crianca["sexo"], g["tipo"], valid_meds_graficos,
                 g["titulo"], g["eixo_x"], g["eixo_y"], g["lx"], g["ly"])
-            if not fig:
-                continue
-
-            png = _fig_to_png_bytes(fig)
             if not png:
                 continue
 
