@@ -1518,37 +1518,24 @@ def _rasterize_pdf_page(pdf_path, page_index, dpi=150):
 
 def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_graficos=None):
     """
-    Gera PDF no formato FOLDER IMPRESSO em A4.
+    Gera PDF no formato FOLDER IMPRESSO em A4 — 6 folhas / 12 páginas.
 
-    O novo template possui 7 páginas:
-      Pág 1 — Capa
-      Pág 2 — Carta aos pais
-      Pág 3 — Template em branco para ficha cadastral / aferições
-      Pág 4 — Template em branco para gráficos
-      Pág 5 — Registros da Avaliação Antropométrica (seção)
-      Pág 6 — Materiais utilizados
-      Pág 7 — Resultados da atividade
+    Páginas do template (0-based index):
+      0 → Capa
+      1 → Carta aos pais
+      2 → Template branco p/ ficha cadastral/aferições
+      3 → Template branco p/ gráficos
+      4 → Registros da Avaliação Antropométrica
+      5 → Materiais utilizados
+      6 → Resultados da atividade
 
-    Saída: 2 páginas A4 paisagem (cada uma = 2 painéis side-by-side),
-    organizadas para impressão frente-e-verso de um folder de 4 faces:
-
-      Página A4 impressa nº 1 (frente):
-        Painel esq (face 4) → template pág 7  (Resultados da atividade)
-        Painel dir (face 1) → template pág 1  (Capa)
-
-      Página A4 impressa nº 1 (verso — vira a folha):
-        Painel esq (face 2) → template pág 2  (Carta aos pais)
-        Painel dir (face 3) → template pág 5  (Registros da Avaliação / seção)
-
-      Página A4 impressa nº 2 (frente):
-        Painel esq (face extra-L) → template pág 6  (Materiais utilizados)
-        Painel dir (face extra-R) → template pág 3  (Ficha do aluno c/ dados e aferições)
-
-      Página A4 impressa nº 2 (verso):
-        Painel esq (face gráficos-L) → template pág 4  (Gráficos OMS — par 1 e 2)
-        Painel dir (face gráficos-R) → template pág 4  (Gráficos OMS — par 3 e 4)
-
-    Para dobrar o folder: imprime frente-e-verso, dobra ao meio.
+    Nova ordem impressa (cada linha = 1 folha A4 frente/verso = 2 painéis):
+      Folha 1  (pág 1 + 2):  Capa  |  Carta aos pais
+      Folha 2  (pág 3 + 4):  Ficha do aluno (dados)  |  Aferições
+      Folha 3  (pág 5 + 6):  Gráfico 1 (Peso×Idade)  |  Gráfico 2 (Estatura×Idade)
+      Folha 4  (pág 7 + 8):  Gráfico 3 (IMC×Idade)   |  Gráfico 4 (Peso×Estatura)
+      Folha 5  (pág 9 + 10): Registros da Avaliação Antropométrica  |  Materiais utilizados
+      Folha 6  (pág 11+12):  Resultados da atividade  |  Ficha em branco (template pág 2)
     """
     import io
     from reportlab.pdfgen import canvas as rl_canvas
@@ -1584,7 +1571,7 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
     c = rl_canvas.Canvas(buf, pagesize=landscape(A4))
 
     # ─────────────────────────────────────────────────────────
-    # HELPERS
+    # HELPERS — idênticos ao original
     # ─────────────────────────────────────────────────────────
     def format_date_pdf(d):
         if not d:
@@ -1718,81 +1705,55 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
     }
 
     # ═════════════════════════════════════════════════════════
-    # PÁGINA A4 nº 1 — Frente do folder (folha 1)
-    #   Painel esq  (face 4 — contracapa) → template pág 7  (Resultados da atividade)
-    #   Painel dir  (face 1 — capa)       → template pág 1  (Capa)
-    #   (sem conteúdo dinâmico — ambos são faces fixas do template)
+    # FOLHA 1 — Capa (esq) | Carta aos pais (dir)
     # ═════════════════════════════════════════════════════════
-    draw_panel_template(0,       page_idx=6)  # pág 7: Resultados da atividade
-    draw_panel_template(PANEL_W, page_idx=0)  # pág 1: Capa
-
+    draw_panel_template(0,       page_idx=0)  # Capa
+    draw_panel_template(PANEL_W, page_idx=1)  # Carta aos pais
     c.showPage()
 
     # ═════════════════════════════════════════════════════════
-    # PÁGINA A4 nº 1 — Verso do folder (folha 1)
-    #   Painel esq  (face 2) → template pág 2  (Carta aos pais)
-    #   Painel dir  (face 3) → template pág 5  (Registros da Avaliação Antropométrica)
+    # FOLHA 2 — Ficha do aluno: dados cadastrais (esq) | Aferições (dir)
+    # Ambos os painéis usam o template pág 3 (ficha em branco)
     # ═════════════════════════════════════════════════════════
-    draw_panel_template(0,       page_idx=1)  # pág 2: Carta aos pais
-    draw_panel_template(PANEL_W, page_idx=4)  # pág 5: Registros da Avaliação
+    draw_panel_template(0,       page_idx=2)  # template ficha — painel esq (dados)
+    draw_panel_template(PANEL_W, page_idx=2)  # template ficha — painel dir (aferições)
 
-    c.showPage()
-
-    # ═════════════════════════════════════════════════════════
-    # PÁGINA A4 nº 2 — Frente do folder (folha 2)
-    #   Painel esq  → template pág 6  (Materiais utilizados) — face fixa
-    #   Painel dir  → template pág 3  (ficha em branco) + conteúdo dinâmico:
-    #                  top: Dados Cadastrais | bottom: Aferições + OMS + Aviso
-    # ═════════════════════════════════════════════════════════
-    draw_panel_template(0,       page_idx=5)  # pág 6: Materiais utilizados
-    draw_panel_template(PANEL_W, page_idx=2)  # pág 3: template ficha em branco
-
-    # O conteúdo dinâmico (dados + aferições) vai no painel DIREITO (offset PANEL_W)
-    # Dividimos verticalmente: metade superior = dados cadastrais; metade inferior = aferições
-    cx_r, cy_top, cw_r, cy_bot = panel_content_bounds(PANEL_W)
-    mid_y = (cy_top + cy_bot) / 2  # divisão ao meio do painel
-
-    # Sub-painel superior: Dados Cadastrais
-    cx_l = cx_r  # reutiliza coordenadas do painel direito
-    cw   = cw_r
-
-    # ── Painel DIREITO: seção superior = Dados Cadastrais ──
-    n_campos = 5 + (1 if crianca.get("comunidade") else 0)
+    # ── PAINEL ESQUERDO: Dados Cadastrais ──
+    cx_l, cy_top_l, cw_l, cy_bot_l = panel_content_bounds(0)
     FOTO_W = 80; FOTO_H = 100
     FIELD_H = 16
     TITLE_H = 34
     BAR_H   = 22
+    n_campos = 5 + (1 if crianca.get("comunidade") else 0)
 
-    # Área superior: cy_top → mid_y (dados cadastrais)
-    area_sup_h = cy_top - mid_y
-    conteudo_sup_h = TITLE_H + BAR_H + max(n_campos * FIELD_H, FOTO_H) + 8
-    offset_v = max(0, (area_sup_h - conteudo_sup_h) / 2)
-    start_y = cy_top - offset_v
+    area_h = cy_top_l - cy_bot_l
+    conteudo_h = TITLE_H + BAR_H + max(n_campos * FIELD_H, FOTO_H) + 8
+    offset_v = max(0, (area_h - conteudo_h) / 2)
+    start_y = cy_top_l - offset_v
 
-    cur_y = draw_panel_title("FICHA DO ALUNO", cx_r, cw_r, start_y, size=10)
+    cur_y = draw_panel_title("FICHA DO ALUNO", cx_l, cw_l, start_y, size=10)
     c.setFillColorRGB(0.38, 0.1, 0.58)
     c.setFont("Helvetica", 7)
-    c.drawCentredString(cx_r + cw_r / 2, cur_y, f"{nome_aluno}  |  {turma_nome}  |  {grupo_nome}")
+    c.drawCentredString(cx_l + cw_l / 2, cur_y, f"{nome_aluno}  |  {turma_nome}  |  {grupo_nome}")
     cur_y -= 8
 
-    cur_y = draw_section_bar("DADOS DO ALUNO", cur_y, cx_r, cw_r)
+    cur_y = draw_section_bar("DADOS DO ALUNO", cur_y, cx_l, cw_l)
 
-    foto_x = cx_r + cw_r - FOTO_W
+    foto_x = cx_l + cw_l - FOTO_W
     foto_y_top = cur_y
 
-    draw_field("Nome:", nome_aluno, cx_r, cur_y, lbl_w=70)
+    draw_field("Nome:", nome_aluno, cx_l, cur_y, lbl_w=70)
     cur_y -= FIELD_H
-    draw_field("Turma:", turma_nome, cx_r, cur_y, lbl_w=58)
+    draw_field("Turma:", turma_nome, cx_l, cur_y, lbl_w=58)
     cur_y -= FIELD_H
-    draw_field("Nascimento:", format_date_pdf(crianca.get("data_nascimento")), cx_r, cur_y, lbl_w=78)
+    draw_field("Nascimento:", format_date_pdf(crianca.get("data_nascimento")), cx_l, cur_y, lbl_w=78)
     cur_y -= FIELD_H
-    draw_field("Idade:", calcular_idade_str(crianca.get("data_nascimento")), cx_r, cur_y, lbl_w=58)
+    draw_field("Idade:", calcular_idade_str(crianca.get("data_nascimento")), cx_l, cur_y, lbl_w=58)
     cur_y -= FIELD_H
-    draw_field("Sexo:", sexo_label, cx_r, cur_y, lbl_w=52)
+    draw_field("Sexo:", sexo_label, cx_l, cur_y, lbl_w=52)
     if crianca.get("comunidade"):
         cur_y -= FIELD_H
-        draw_field("Comunidade:", crianca.get("comunidade"), cx_r, cur_y, lbl_w=78)
-    cur_y -= 8
+        draw_field("Comunidade:", crianca.get("comunidade"), cx_l, cur_y, lbl_w=78)
 
     foto_y = foto_y_top - FOTO_H
     c.setFillColorRGB(0.85, 0.93, 0.98)
@@ -1808,13 +1769,10 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
     c.setFillColorRGB(0.4, 0.4, 0.4); c.setFont("Helvetica", 6.5)
     c.drawCentredString(foto_x + FOTO_W / 2, foto_y + 5, "Foto do Aluno")
 
-    # Linha divisória entre dados e aferições
-    c.setStrokeColorRGB(0.47, 0.73, 0.18)
-    c.setLineWidth(1.0)
-    c.line(cx_r, mid_y + 4, cx_r + cw_r, mid_y + 4)
+    draw_footer_panel(cx_l, cw_l, cy_bot_l, 3, 1)
 
-    # ── Painel DIREITO: seção inferior = Aferições ──
-    # Área inferior: mid_y → cy_bot
+    # ── PAINEL DIREITO: Aferições ──
+    cx_r, cy_top_r, cw_r, cy_bot_r = panel_content_bounds(PANEL_W)
     n_meds = len(medicoes) if medicoes else 1
     ROW_H  = 16
     av_line_h = 10
@@ -1825,9 +1783,9 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
     TITLE_H2 = 34
     BAR_H2   = 20
     conteudo_dir_h = TITLE_H2 + BAR_H2 + table_h + oms_h + aviso_h + 14
-    area_inf_h = mid_y - cy_bot
+    area_inf_h = cy_top_r - cy_bot_r
     offset_v2 = max(0, (area_inf_h - conteudo_dir_h) / 2)
-    start_y2 = mid_y - offset_v2
+    start_y2 = cy_top_r - offset_v2
 
     cur_y2 = draw_panel_title("AFERICOES", cx_r, cw_r, start_y2, size=10)
     c.setFillColorRGB(0.38, 0.1, 0.58)
@@ -1853,7 +1811,7 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
         xi += cw_col
     cur_y2 -= row_h_t + 3
 
-    RESERVA = cy_bot + 70
+    RESERVA = cy_bot_r + 70
     if medicoes:
         for idx, med in enumerate(medicoes):
             if cur_y2 < RESERVA:
@@ -1922,12 +1880,13 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
         c.drawString(cx_r + 8, ty, txt)
         ty -= av_line_h
 
-    draw_footer_panel(cx_r, cw_r, cy_bot, 3, 2)
+    draw_footer_panel(cx_r, cw_r, cy_bot_r, 4, 2)
+    c.showPage()
 
     # ═════════════════════════════════════════════════════════
-    # PÁGINA A4 nº 2 — Verso do folder (folha 2)
-    #   Painel esq → template pág 4  (gráficos OMS — par 1 e 2)
-    #   Painel dir → template pág 4  (gráficos OMS — par 3 e 4)
+    # FOLHAS 3 e 4 — Gráficos OMS (um gráfico por painel)
+    # Folha 3: Gráfico 1 (esq) | Gráfico 2 (dir)
+    # Folha 4: Gráfico 3 (esq) | Gráfico 4 (dir)
     # ═════════════════════════════════════════════════════════
     graficos_def = [
         {"tipo": "peso_idade",    "titulo": "Grafico 1 — Peso x Idade",     "eixo_x": "meses",  "eixo_y": "peso",   "lx": "Idade (meses)", "ly": "Peso (kg)"},
@@ -1939,16 +1898,13 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
     if valid_meds_graficos and crianca.get("sexo"):
         import io as _io4
 
-        # Renderiza pares de gráficos em páginas separadas
+        # Renderiza pares de gráficos em folhas separadas (folhas 3 e 4)
         for pg_idx, (g_esq, g_dir) in enumerate([(graficos_def[0], graficos_def[1]),
                                                    (graficos_def[2], graficos_def[3])]):
-            c.showPage()
+            draw_panel_template(0,       page_idx=3)  # template gráficos — painel esq
+            draw_panel_template(PANEL_W, page_idx=3)  # template gráficos — painel dir
 
-            # Ambos painéis usam template pág 4 (gráficos em branco)
-            draw_panel_template(0,       page_idx=3)  # pág 4: template gráficos
-            draw_panel_template(PANEL_W, page_idx=3)  # pág 4: template gráficos
-
-            page_num = pg_idx + 4
+            page_num = pg_idx + 5   # pág 5 e 6 para folha 3; pág 7 e 8 para folha 4
             subtitulo_g = f"{nome_aluno}  |  {turma_nome}  |  {grupo_nome}"
 
             for gi, (g, panel_off) in enumerate([(g_esq, 0), (g_dir, PANEL_W)]):
@@ -1962,7 +1918,7 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
                     mid_y_g = (cy_top_p + cy_bot_p) / 2
                     c.setFillColorRGB(0.5, 0.5, 0.5); c.setFont("Helvetica-Oblique", 9)
                     c.drawCentredString(cx_p + cw_p / 2, mid_y_g, "Dados insuficientes para este grafico.")
-                    draw_footer_panel(cx_p, cw_p, cy_bot_p, page_num, gi + 1)
+                    draw_footer_panel(cx_p, cw_p, cy_bot_p, page_num + gi, gi + 1)
                     continue
 
                 png, diagnosticos = _render_growth_chart_png_large(
@@ -1970,62 +1926,50 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
                     g["titulo"], g["eixo_x"], g["eixo_y"], g["lx"], g["ly"])
 
                 if not png:
-                    draw_footer_panel(cx_p, cw_p, cy_bot_p, page_num, gi + 1)
+                    draw_footer_panel(cx_p, cw_p, cy_bot_p, page_num + gi, gi + 1)
                     continue
 
-                # ── Constantes de layout ──
+                # ── Layout do painel de gráfico ──
                 DIAG_FONT   = 8.0
                 BADGE_H     = 15
                 BADGE_GAP   = 5
-                TITULO_H    = 20   # texto do título
-                LINHA_H     = 7    # linha separadora + gap
-                SUBTIT_H    = 16   # subtítulo em negrito
-                GAP_SUB_IMG = 8    # gap entre subtítulo e gráfico
-                GAP_IMG_DIAG = 10  # gap entre gráfico e diagnósticos
+                TITULO_H    = 20
+                LINHA_H     = 7
+                SUBTIT_H    = 16
+                GAP_SUB_IMG = 8
+                GAP_IMG_DIAG = 10
                 DIAG_AREA_H = len(diagnosticos) * (BADGE_H + BADGE_GAP)
-                FOOTER_H    = 16   # reserva para o texto de rodapé
+                FOOTER_H    = 16
 
                 header_h  = TITULO_H + LINHA_H + SUBTIT_H + GAP_SUB_IMG
                 footer_h  = DIAG_AREA_H + GAP_IMG_DIAG + FOOTER_H
-
-                # Área útil total
                 area_util = cy_top_p - cy_bot_p
-
-                # Gráfico ocupa tudo que restar
-                img_h = area_util - header_h - footer_h
-                img_h = max(img_h, 120)
-
-                # Bloco completo centralizado verticalmente
+                img_h = max(area_util - header_h - footer_h, 120)
                 bloco_h  = header_h + img_h + footer_h
                 margem_v = max(0, (area_util - bloco_h) / 2)
                 bloco_top = cy_top_p - margem_v
 
-                # ── Título ──
                 titulo_y = bloco_top - TITULO_H + 4
                 c.setFillColorRGB(0.27, 0.55, 0.09)
                 c.setFont("Helvetica-Bold", 11)
                 c.drawCentredString(cx_p + cw_p / 2, titulo_y, g["titulo"])
 
-                # Linha separadora
                 linha_y = titulo_y - LINHA_H
                 c.setStrokeColorRGB(0.42, 0.68, 0.15)
                 c.setLineWidth(1.2)
                 c.line(cx_p, linha_y, cx_p + cw_p, linha_y)
 
-                # ── Subtítulo em negrito e fonte maior ──
                 subtit_y = linha_y - SUBTIT_H + 4
                 c.setFillColorRGB(0.28, 0.07, 0.44)
                 c.setFont("Helvetica-Bold", 9.5)
                 c.drawCentredString(cx_p + cw_p / 2, subtit_y, subtitulo_g)
 
-                # ── Gráfico ──
                 img_y = subtit_y - GAP_SUB_IMG - img_h
                 img_buf = _io4.BytesIO(png)
                 c.drawImage(ImageReader(img_buf), cx_p, img_y,
                             width=cw_p, height=img_h,
                             preserveAspectRatio=False, mask="auto")
 
-                # ── Diagnósticos abaixo do gráfico ──
                 diag_y = img_y - GAP_IMG_DIAG
                 for diag_item in diagnosticos:
                     if diag_y < cy_bot_p + FOOTER_H + BADGE_H:
@@ -2044,7 +1988,24 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
                     c.drawString(cx_p + 9 + lbl_w_px, diag_y + 3, f"→ {status_txt}")
                     diag_y -= (BADGE_H + BADGE_GAP)
 
-                draw_footer_panel(cx_p, cw_p, cy_bot_p, page_num, gi + 1)
+                draw_footer_panel(cx_p, cw_p, cy_bot_p, page_num + gi, gi + 1)
+
+            c.showPage()
+
+    # ═════════════════════════════════════════════════════════
+    # FOLHA 5 — Registros da Avaliação (esq) | Materiais utilizados (dir)
+    # ═════════════════════════════════════════════════════════
+    draw_panel_template(0,       page_idx=4)  # Registros da Avaliação Antropométrica
+    draw_panel_template(PANEL_W, page_idx=5)  # Materiais utilizados
+    c.showPage()
+
+    # ═════════════════════════════════════════════════════════
+    # FOLHA 6 — Resultados da atividade (esq) | Ficha em branco (dir)
+    # Ficha em branco = template pág 3 (sem conteúdo dinâmico)
+    # ═════════════════════════════════════════════════════════
+    draw_panel_template(0,       page_idx=6)  # Resultados da atividade
+    draw_panel_template(PANEL_W, page_idx=2)  # Ficha em branco para edição manual
+    c.showPage()
 
     c.save()
     buf.seek(0)
