@@ -1518,7 +1518,7 @@ def _rasterize_pdf_page(pdf_path, page_index, dpi=150):
 
 def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_graficos=None):
     """
-    Gera PDF no formato FOLDER IMPRESSO em A4 — 6 folhas / 12 páginas.
+    Gera PDF no formato FOLDER IMPRESSO em A4 — 9 folhas / 18 páginas.
 
     Páginas do template (0-based index):
       0 → Capa
@@ -1529,13 +1529,17 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
       5 → Materiais utilizados
       6 → Resultados da atividade
 
-    Nova ordem impressa (cada linha = 1 folha A4 frente/verso = 2 painéis):
+    Ordem impressa (cada linha = 1 folha A4 frente/verso = 2 painéis):
       Folha 1  (pág 1 + 2):  Capa  |  Carta aos pais
       Folha 2  (pág 3 + 4):  Ficha do aluno (dados)  |  Aferições
       Folha 3  (pág 5 + 6):  Gráfico 1 (Peso×Idade)  |  Gráfico 2 (Estatura×Idade)
       Folha 4  (pág 7 + 8):  Gráfico 3 (IMC×Idade)   |  Gráfico 4 (Peso×Estatura)
       Folha 5  (pág 9 + 10): Registros da Avaliação Antropométrica  |  Materiais utilizados
       Folha 6  (pág 11+12):  Resultados da atividade  |  Ficha em branco (template pág 2)
+      Folha 7  (pág 13+14):  Materiais utilizados  |  Resultados da atividade  [EXTRA]
+      Folha 8  (pág 15+16):  Materiais utilizados  |  Resultados da atividade  [EXTRA]
+      Folha 9  (pág 17+18):  Materiais utilizados  |  Resultados da atividade  [EXTRA]
+      Folha 10 (pág 18):     Ficha em branco  |  Ficha em branco  (última folha)
     """
     import io
     from reportlab.pdfgen import canvas as rl_canvas
@@ -2015,15 +2019,23 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
             c.showPage()
 
     # ═════════════════════════════════════════════════════════
-    # FOLHA 5 FRENTE: Materiais utilizados já foi na folha 2 frente.
-    # FOLHA 5 VERSO não existe — folhas 5/6 ficaram cobertas acima.
-    # FOLHA restante — caso não haja gráficos, ainda precisa das páginas
-    # de gráficos em branco + folha 5 e 6.
-    # Aqui adicionamos folha 5 e 6 sempre ao final.
-    # ─────────────────────────────────────────────────────────
-    # NOTA: Registros da Avaliação (pág 9) já está no verso da folha 2.
-    #       Folha 5 e 6 do folder já foram renderizadas acima.
+    # FOLHAS EXTRAS — Materiais utilizados | Resultados da atividade
+    #
+    # Páginas 10–17: 4 folhas A4, cada uma com:
+    #   Painel esquerdo  → Materiais utilizados  (template pág 5)
+    #   Painel direito   → Resultados da atividade (template pág 6)
+    #
+    # Página 18 (última folha A4): ficha em branco nos dois painéis.
     # ═════════════════════════════════════════════════════════
+    for _extra_sheet in range(4):
+        draw_panel_template(0,       page_idx=5)  # Materiais utilizados
+        draw_panel_template(PANEL_W, page_idx=6)  # Resultados da atividade
+        c.showPage()
+
+    # ── ÚLTIMA FOLHA: Ficha em branco (pág 18) ──
+    draw_panel_template(0,       page_idx=2)  # ficha em branco
+    draw_panel_template(PANEL_W, page_idx=2)  # ficha em branco
+    c.showPage()
 
     c.save()
     buf.seek(0)
