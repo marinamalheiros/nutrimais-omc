@@ -1463,8 +1463,12 @@ def _render_growth_chart_png_large(sexo, tipo, valid_meds, titulo, eixo_x_campo,
                 data_fmt = f"{parts[2]}/{parts[1]}/{parts[0]}"
         except:
             pass
+        # Formato do modelo: "Aferição 1 - 03/02/2026  (16.1 meses; 11.0kg)  → Status"
+        vy_label = f"{p['vy']:.1f}kg" if eixo_y_campo == "peso" else (
+                   f"{p['vy']:.1f}cm" if eixo_y_campo == "altura" else
+                   f"{p['vy']:.1f}kg/m\u00b2")
         diagnosticos.append({
-            "label": f"Aferição {p['idx']} ({p['vx']:.1f} {unidade}, {p['vy']:.1f}) — {data_fmt}",
+            "label": f"Afer\u00e9\u00e7\u00e3o {p['idx']} - {data_fmt}   ({p['vx']:.1f} {unidade}; {vy_label})",
             "status": status,
             "cor_hex": cor_hex,
         })
@@ -1518,18 +1522,23 @@ def _rasterize_pdf_page(pdf_path, page_index, dpi=150):
 
 def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_graficos=None):
     """
-    Gera PDF com UMA PÁGINA POR FOLHA A4 (retrato), na ordem sequencial:
-      Pág 1: Capa
-      Pág 2: Carta aos pais
-      Pág 3: Ficha do aluno (dados cadastrais)
-      Pág 4: Aferições
-      Pág 5: Gráfico 1 — Peso x Idade
-      Pág 6: Gráfico 2 — Estatura x Idade
-      Pág 7: Gráfico 3 — IMC x Idade
-      Pág 8: Gráfico 4 — Peso x Estatura
-      Pág 9: Registros da Avaliação Antropométrica
-      Pág 10: Materiais utilizados
-      Pág 11: Resultados da atividade
+    Gera PDF com UMA PÁGINA POR FOLHA A4 (retrato), na ordem do modelo:
+      Pág  1: Capa (template pág 0)
+      Pág  2: Carta aos pais (template pág 1)
+      Pág  3: Ficha do aluno — dados cadastrais (template pág 2)
+      Pág  4: Aferições (template pág 2)
+      Pág  5: Gráfico 1 — Peso x Idade (template pág 3)
+      Pág  6: Gráfico 2 — Estatura x Idade (template pág 3)
+      Pág  7: Gráfico 3 — IMC x Idade (template pág 3)
+      Pág  8: Gráfico 4 — Peso x Estatura (template pág 3)
+      Pág  9: Registros da Avaliação Antropométrica (template pág 4)
+      Pág 10: Materiais — atividade 1 (template pág 5)
+      Pág 11: Resultados — atividade 1 (template pág 6)
+      Pág 12: Materiais — atividade 2 (template pág 5)
+      Pág 13: Resultados — atividade 2 (template pág 6)
+      Pág 14: Materiais — atividade 3 (template pág 5)
+      Pág 15: Resultados — atividade 3 (template pág 6)
+      Pág 16: Última página (template pág 6, reutilizado como encerramento)
 
     Páginas do template (0-based index):
       0 → Capa
@@ -1538,28 +1547,29 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
       3 → Template branco p/ gráficos
       4 → Registros da Avaliação Antropométrica
       5 → Materiais utilizados
-      6 → Resultados da atividade
+      6 → Resultados da atividade / Encerramento
     """
     import io
     from reportlab.pdfgen import canvas as rl_canvas
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.utils import ImageReader
+    from reportlab.lib.styles import ParagraphStyle
     from datetime import date as _date
 
     TEMPLATE_PATH = "template_ficha.pdf"
+    LOGO_PATHS = ["marina_logo.png", "logo_marina.png", "marina_malheiros.png"]
 
     # Página em modo RETRATO A4
     PW, PH = A4   # PW ≈ 595, PH ≈ 842
 
-    # Padding interno — ajustado para A4 retrato com template em tamanho completo
-    PAD_X   = 36    # margens laterais
-    PAD_TOP = 175   # abaixo do arco verde superior (escalado para A4 retrato)
-    PAD_BOT = 150   # acima do rodapé amarelo com as frutas
+    # Padding interno — área útil dentro do template A4 retrato
+    # O template tem arco verde/amarelo no topo (~195pt) e rodapé amarelo (~160pt)
+    PAD_X   = 40    # margens laterais
+    PAD_TOP = 195   # abaixo do arco verde superior
+    PAD_BOT = 158   # acima do rodapé amarelo com as frutas
 
-    # Pré-rasteriza as páginas necessárias do template (0-indexed)
     _tpl_cache = {}
     def get_tpl_page(page_idx):
-        """Retorna bytes PNG da página page_idx do template (cache em memória)."""
         if page_idx not in _tpl_cache:
             if os.path.exists(TEMPLATE_PATH):
                 _tpl_cache[page_idx] = _rasterize_pdf_page(TEMPLATE_PATH, page_idx, dpi=150)
@@ -1607,17 +1617,7 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
         return tuple(int(h[i:i+2], 16) / 255.0 for i in (0, 2, 4))
 
     def draw_page_template(page_idx=2):
-        """
-        Desenha a página page_idx (0-based) do template de fundo cobrindo toda a página A4.
-        Páginas do template:
-          0 → Capa
-          1 → Carta aos pais
-          2 → Template branco p/ ficha cadastral/aferições
-          3 → Template branco p/ gráficos
-          4 → Registros da Avaliação Antropométrica
-          5 → Materiais utilizados
-          6 → Resultados da atividade
-        """
+        """Desenha a página page_idx do template cobrindo toda a folha A4."""
         import io as _io_t
         png_bytes = get_tpl_page(page_idx)
         if png_bytes:
@@ -1628,65 +1628,68 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
                 return
             except Exception:
                 pass
-        # Fallback visual
+        # Fallback visual simples
         c.setFillColorRGB(0.98, 0.96, 0.78)
         c.rect(0, 0, PW, PH, fill=1, stroke=0)
-        c.setFillColorRGB(1.0, 0.87, 0.2)
-        c.rect(0, 0, PW, 90, fill=1, stroke=0)
-        c.rect(0, PH - 90, PW, 90, fill=1, stroke=0)
-        c.setStrokeColorRGB(0.47, 0.73, 0.18)
-        c.setLineWidth(10)
-        c.roundRect(18, 18, PW - 36, PH - 36, 30, fill=0, stroke=1)
+        c.setFillColorRGB(0.55, 0.76, 0.29)
+        c.rect(0, PH - 100, PW, 100, fill=1, stroke=0)
+        c.rect(0, 0, PW, 100, fill=1, stroke=0)
 
     def page_content_bounds():
-        """Retorna (cx, cy_top, cw, cy_bot) — área útil de conteúdo dentro da página."""
+        """Área útil dentro do template: (x_left, y_top, largura, y_bottom)."""
         cx = PAD_X
         cw = PW - 2 * PAD_X
         cy_top = PH - PAD_TOP
         cy_bot = PAD_BOT
         return cx, cy_top, cw, cy_bot
 
-    def draw_section_bar(label, y, cx, cw, size=9):
+    def draw_section_bar(label, y, cx, cw, size=9.5):
+        """Barra verde com texto branco."""
         c.setFillColorRGB(0.42, 0.68, 0.15)
-        c.roundRect(cx, y - 2, cw, 18, 4, fill=1, stroke=0)
+        c.roundRect(cx, y - 2, cw, 20, 4, fill=1, stroke=0)
         c.setFillColorRGB(1, 1, 1)
         c.setFont("Helvetica-Bold", size)
-        c.drawString(cx + 7, y + 3, label)
-        return y - 24
+        c.drawString(cx + 8, y + 4, label)
+        return y - 28
 
-    def draw_field(label, value, x, y, lbl_w=70):
+    def draw_field(label, value, x, y, lbl_w=80, font_size=10):
+        """Campo com rótulo em roxo negrito e valor em preto."""
         c.setFillColorRGB(0.38, 0.1, 0.58)
-        c.setFont("Helvetica-Bold", 9)
+        c.setFont("Helvetica-Bold", font_size)
         c.drawString(x, y, label)
         c.setFillColorRGB(0.1, 0.1, 0.1)
-        c.setFont("Helvetica", 9)
+        c.setFont("Helvetica", font_size)
         c.drawString(x + lbl_w, y, str(value) if value else "-")
 
-    def draw_page_title(label, cx, cw, cy_top, size=12):
+    def draw_page_title(label, cx, cw, cy_top, size=14):
+        """Título centralizado em verde com linha separadora."""
         c.setFillColorRGB(0.27, 0.55, 0.09)
         c.setFont("Helvetica-Bold", size)
         c.drawCentredString(cx + cw / 2, cy_top, label)
-        cur = cy_top - 14
+        cur = cy_top - 16
         c.setStrokeColorRGB(0.42, 0.68, 0.15)
-        c.setLineWidth(1.2)
+        c.setLineWidth(1.5)
         c.line(cx, cur, cx + cw, cur)
-        return cur - 6
+        return cur - 8
 
-    # Mantém compatibilidade com código que usa draw_panel_title
-    def draw_panel_title(label, cx, cw, cy_top, size=12):
-        return draw_page_title(label, cx, cw, cy_top, size)
+    def draw_subtitle(label, cx, cw, y, size=9.5):
+        """Subtítulo centralizado em roxo."""
+        c.setFillColorRGB(0.28, 0.07, 0.44)
+        c.setFont("Helvetica-Bold", size)
+        c.drawCentredString(cx + cw / 2, y, label)
+        return y - 14
 
     def draw_footer(cx, cw, cy_bot, page_num):
         c.setFillColorRGB(0.27, 0.55, 0.09)
-        c.setFont("Helvetica", 6.5)
-        c.drawCentredString(cx + cw / 2, cy_bot + 4,
+        c.setFont("Helvetica", 7)
+        c.drawCentredString(cx + cw / 2, cy_bot + 5,
             f"Gerado em {_date.today().strftime('%d/%m/%Y')}  —  Pág. {page_num}")
 
-    # Mantém compatibilidade com código legado
+    # Compatibilidade com chamadas legadas
+    def draw_panel_title(label, cx, cw, cy_top, size=14):
+        return draw_page_title(label, cx, cw, cy_top, size)
     def draw_footer_panel(cx, cw, cy_bot, page_num, panel_num=1):
         draw_footer(cx, cw, cy_bot, page_num)
-
-    # Alias para panel_content_bounds — retorna bounds da página inteira
     def panel_content_bounds(offset_x=0):
         return page_content_bounds()
 
@@ -1714,124 +1717,114 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
     }
 
     # ═════════════════════════════════════════════════════════
-    # LAYOUT SEQUENCIAL — UMA PÁGINA POR FOLHA A4 (RETRATO)
-    #   Pág 1: Capa
-    #   Pág 2: Carta aos pais
-    #   Pág 3: Ficha do aluno (dados cadastrais)
-    #   Pág 4: Aferições
-    #   Pág 5-8: Gráficos (se disponíveis)
-    #   Pág 9: Registros da Avaliação Antropométrica
-    #   Pág 10: Materiais utilizados
-    #   Pág 11: Resultados da atividade
+    # PÁG 1 — CAPA (usa template pág 0 — o próprio template já tem a capa completa)
     # ═════════════════════════════════════════════════════════
-
-    # ── PÁG 1: Capa ──
     draw_page_template(page_idx=0)
     c.showPage()
 
-    # ── PÁG 2: Carta aos pais ──
+    # ═════════════════════════════════════════════════════════
+    # PÁG 2 — CARTA AOS PAIS (template pág 1)
+    # ═════════════════════════════════════════════════════════
     draw_page_template(page_idx=1)
     c.showPage()
 
-    # ── PÁG 3: Ficha do aluno — Dados Cadastrais ──
+    # ═════════════════════════════════════════════════════════
+    # PÁG 3 — FICHA DO ALUNO (dados cadastrais)
+    # ═════════════════════════════════════════════════════════
     draw_page_template(page_idx=2)
+    cx, cy_top, cw, cy_bot = page_content_bounds()
 
-    cx_l, cy_top_l, cw_l, cy_bot_l = page_content_bounds()
-    FOTO_W = 80; FOTO_H = 100
-    FIELD_H = 16
-    TITLE_H = 34
-    BAR_H   = 22
-    n_campos = 5 + (1 if crianca.get("comunidade") else 0)
+    FOTO_W = 100; FOTO_H = 120
+    FIELD_H = 22
+    n_campos = 3 + (1 if crianca.get("comunidade") else 0)
+    # Título grande + subtítulo + barra + campos
+    TITLE_BLOCK = 50
+    conteudo_h = TITLE_BLOCK + (n_campos * FIELD_H) + 20
+    area_h = cy_top - cy_bot
+    offset_v = max(0, (area_h - max(conteudo_h, FOTO_H + TITLE_BLOCK)) / 2)
+    start_y = cy_top - offset_v
 
-    area_h = cy_top_l - cy_bot_l
-    conteudo_h = TITLE_H + BAR_H + max(n_campos * FIELD_H, FOTO_H) + 8
-    offset_v = max(0, (area_h - conteudo_h) / 2)
-    start_y = cy_top_l - offset_v
+    # Título
+    cur_y = draw_page_title("FICHA DO ALUNO", cx, cw, start_y, size=16)
+    cur_y = draw_subtitle(f"{nome_aluno}  |  {turma_nome}  |  {grupo_nome}", cx, cw, cur_y, size=9.5)
+    cur_y -= 6
+    cur_y = draw_section_bar("DADOS DO ALUNO", cur_y, cx, cw, size=9.5)
+    cur_y -= 4
 
-    cur_y = draw_panel_title("FICHA DO ALUNO", cx_l, cw_l, start_y, size=10)
-    c.setFillColorRGB(0.38, 0.1, 0.58)
-    c.setFont("Helvetica", 7)
-    c.drawCentredString(cx_l + cw_l / 2, cur_y, f"{nome_aluno}  |  {turma_nome}  |  {grupo_nome}")
-    cur_y -= 8
+    # Foto à direita
+    foto_x = cx + cw - FOTO_W - 4
+    foto_y = cur_y - FOTO_H
 
-    cur_y = draw_section_bar("DADOS DO ALUNO", cur_y, cx_l, cw_l)
-
-    foto_x = cx_l + cw_l - FOTO_W
-    foto_y_top = cur_y
-
-    draw_field("Nome:", nome_aluno, cx_l, cur_y, lbl_w=70)
+    # Campos de texto (deixando espaço para a foto)
+    field_cw = cw - FOTO_W - 20
+    draw_field("Nome:", nome_aluno, cx, cur_y, lbl_w=90, font_size=11)
     cur_y -= FIELD_H
-    draw_field("Turma:", turma_nome, cx_l, cur_y, lbl_w=58)
+    draw_field("Turma:", turma_nome, cx, cur_y, lbl_w=75, font_size=11)
     cur_y -= FIELD_H
-    draw_field("Nascimento:", format_date_pdf(crianca.get("data_nascimento")), cx_l, cur_y, lbl_w=78)
+    draw_field("Nascimento:", format_date_pdf(crianca.get("data_nascimento")), cx, cur_y, lbl_w=95, font_size=11)
     cur_y -= FIELD_H
-    draw_field("Idade:", calcular_idade_str(crianca.get("data_nascimento")), cx_l, cur_y, lbl_w=58)
-    cur_y -= FIELD_H
-    draw_field("Sexo:", sexo_label, cx_l, cur_y, lbl_w=52)
     if crianca.get("comunidade"):
+        draw_field("Comunidade:", crianca.get("comunidade"), cx, cur_y, lbl_w=95, font_size=11)
         cur_y -= FIELD_H
-        draw_field("Comunidade:", crianca.get("comunidade"), cx_l, cur_y, lbl_w=78)
 
-    foto_y = foto_y_top - FOTO_H
-    c.setFillColorRGB(0.85, 0.93, 0.98)
-    c.roundRect(foto_x - 2, foto_y - 2, FOTO_W + 4, FOTO_H + 4, 5, fill=1, stroke=0)
-    c.setStrokeColorRGB(0.6, 0.6, 0.6); c.setLineWidth(0.7)
-    c.roundRect(foto_x - 2, foto_y - 2, FOTO_W + 4, FOTO_H + 4, 5, fill=0, stroke=1)
+    # Caixa de foto
+    c.setFillColorRGB(0.9, 0.95, 1.0)
+    c.roundRect(foto_x - 3, foto_y - 3, FOTO_W + 6, FOTO_H + 6, 6, fill=1, stroke=0)
+    c.setStrokeColorRGB(0.7, 0.7, 0.7); c.setLineWidth(0.8)
+    c.roundRect(foto_x - 3, foto_y - 3, FOTO_W + 6, FOTO_H + 6, 6, fill=0, stroke=1)
+    # Ícone de pessoa (placeholder)
     c.setFillColorRGB(0.55, 0.76, 0.29)
-    c.ellipse(foto_x - 2, foto_y - 2, foto_x + FOTO_W + 2, foto_y + 18, fill=1, stroke=0)
-    c.setFillColorRGB(1, 1, 1)
-    cx_n = foto_x + FOTO_W / 2; cy_n = foto_y + FOTO_H - 18
-    for ox, oy, r in [(-8, 0, 6), (0, 0, 9), (8, 0, 6), (-4, 4, 5), (4, 4, 5)]:
+    cx_n = foto_x + FOTO_W / 2; cy_n = foto_y + FOTO_H - 25
+    for ox, oy, r in [(-10, 0, 7), (0, 0, 11), (10, 0, 7), (-5, 5, 6), (5, 5, 6)]:
         c.circle(cx_n + ox, cy_n + oy, r, fill=1, stroke=0)
-    c.setFillColorRGB(0.4, 0.4, 0.4); c.setFont("Helvetica", 6.5)
-    c.drawCentredString(foto_x + FOTO_W / 2, foto_y + 5, "Foto do Aluno")
+    c.setFillColorRGB(0.4, 0.4, 0.4); c.setFont("Helvetica", 7)
+    c.drawCentredString(foto_x + FOTO_W / 2, foto_y + 7, "Foto do Aluno")
 
-    draw_footer_panel(cx_l, cw_l, cy_bot_l, 3, 2)
-
-    # ── PÁG 4: Aferições ──
+    draw_footer(cx, cw, cy_bot, 3)
     c.showPage()
+
+    # ═════════════════════════════════════════════════════════
+    # PÁG 4 — AFERIÇÕES
+    # ═════════════════════════════════════════════════════════
     draw_page_template(page_idx=2)
+    cx, cy_top, cw, cy_bot = page_content_bounds()
 
-    cx_r, cy_top_r, cw_r, cy_bot_r = page_content_bounds()
     n_meds = len(medicoes) if medicoes else 1
-    ROW_H  = 16
-    av_line_h = 10
+    ROW_H = 18
+    av_line_h = 11
     av_lines_count = 5
-    aviso_h = av_lines_count * av_line_h + 12
-    oms_h   = 20
-    table_h = (n_meds + 1) * (ROW_H + 2) + 4
-    TITLE_H2 = 34
-    BAR_H2   = 20
-    conteudo_dir_h = TITLE_H2 + BAR_H2 + table_h + oms_h + aviso_h + 14
-    area_inf_h = cy_top_r - cy_bot_r
-    offset_v2 = max(0, (area_inf_h - conteudo_dir_h) / 2)
-    start_y2 = cy_top_r - offset_v2
+    aviso_h = av_lines_count * av_line_h + 18
+    oms_h = 28
+    table_h = (n_meds + 1) * (ROW_H + 3) + 6
+    TITLE_BLOCK2 = 54
+    conteudo2_h = TITLE_BLOCK2 + table_h + oms_h + aviso_h + 16
+    area2_h = cy_top - cy_bot
+    offset2_v = max(0, (area2_h - conteudo2_h) / 2)
+    start_y2 = cy_top - offset2_v
 
-    cur_y2 = draw_panel_title("AFERICOES", cx_r, cw_r, start_y2, size=10)
-    c.setFillColorRGB(0.38, 0.1, 0.58)
-    c.setFont("Helvetica", 7)
-    c.drawCentredString(cx_r + cw_r / 2, cur_y2, f"{nome_aluno}  |  {turma_nome}  |  {grupo_nome}")
-    cur_y2 -= 8
+    cur_y2 = draw_page_title("AFERIÇÕES", cx, cw, start_y2, size=16)
+    cur_y2 = draw_subtitle(f"{nome_aluno}  |  {turma_nome}  |  {grupo_nome}", cx, cw, cur_y2, size=9.5)
+    cur_y2 -= 6
+    cur_y2 = draw_section_bar("AFERIÇÕES", cur_y2, cx, cw, size=9.5)
+    cur_y2 -= 4
 
-    cur_y2 = draw_section_bar("AFERICOES", cur_y2, cx_r, cw_r)
-
-    col_labels = ["Aferição", "Data", "Peso\n(kg)", "Altura\n(cm)", "IMC\n(kg/m²)"]
-    col_pcts   = [0.18, 0.20, 0.18, 0.20, 0.24]
-    col_ws     = [cw_r * p for p in col_pcts]
-    row_h_t    = ROW_H
-    table_x    = cx_r
+    # Cabeçalho da tabela
+    col_labels = ["Aferição", "Data", "Peso (kg)", "Altura (cm)", "IMC (kg/m²)"]
+    col_pcts   = [0.18, 0.22, 0.18, 0.20, 0.22]
+    col_ws     = [cw * p for p in col_pcts]
+    table_x    = cx
 
     c.setFillColorRGB(0.38, 0.1, 0.58)
-    c.rect(table_x, cur_y2 - 2, cw_r, row_h_t, fill=1, stroke=0)
+    c.rect(table_x, cur_y2 - 2, cw, ROW_H, fill=1, stroke=0)
     c.setFillColorRGB(1, 1, 1)
-    c.setFont("Helvetica-Bold", 7)
+    c.setFont("Helvetica-Bold", 8.5)
     xi = table_x
     for lbl, cw_col in zip(col_labels, col_ws):
-        c.drawCentredString(xi + cw_col / 2, cur_y2 + 4, lbl.replace("\n", " "))
+        c.drawCentredString(xi + cw_col / 2, cur_y2 + 5, lbl)
         xi += cw_col
-    cur_y2 -= row_h_t + 3
+    cur_y2 -= ROW_H + 4
 
-    RESERVA = cy_bot_r + 70
+    RESERVA = cy_bot + 80
     if medicoes:
         for idx, med in enumerate(medicoes):
             if cur_y2 < RESERVA:
@@ -1849,72 +1842,67 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
                 else:
                     diag = "Fora da faixa"
             else:
-                imc_txt = "-"; diag = "Sem medicao"
+                imc_txt = "-"; diag = "Sem medição"
 
             bg = (0.95, 0.91, 1.0) if idx % 2 == 0 else (1, 1, 1)
             c.setFillColorRGB(*bg)
-            c.rect(table_x, cur_y2 - 2, cw_r, row_h_t, fill=1, stroke=0)
+            c.rect(table_x, cur_y2 - 2, cw, ROW_H, fill=1, stroke=0)
             row_vals = [f"Afer. {idx+1}", format_date_pdf(med.get("data_medicao","")),
                         f"{peso:.1f}" if peso > 0 else "-",
                         f"{alt:.1f}" if alt > 0 else "-",
                         imc_txt]
             xi = table_x
-            for ci, (val, cw_col) in enumerate(zip(row_vals, col_ws)):
-                c.setFillColorRGB(0.15, 0.15, 0.15); c.setFont("Helvetica", 7)
-                c.drawCentredString(xi + cw_col / 2, cur_y2 + 4, val)
+            for val, cw_col in zip(row_vals, col_ws):
+                c.setFillColorRGB(0.15, 0.15, 0.15); c.setFont("Helvetica", 8.5)
+                c.drawCentredString(xi + cw_col / 2, cur_y2 + 5, val)
                 xi += cw_col
-            c.setStrokeColorRGB(0.8, 0.75, 0.9); c.setLineWidth(0.3)
-            c.line(table_x, cur_y2 - 2, table_x + cw_r, cur_y2 - 2)
-            cur_y2 -= row_h_t + 2
+            c.setStrokeColorRGB(0.75, 0.70, 0.88); c.setLineWidth(0.4)
+            c.line(table_x, cur_y2 - 2, table_x + cw, cur_y2 - 2)
+            cur_y2 -= ROW_H + 3
     else:
-        c.setFillColorRGB(0.5, 0.5, 0.5); c.setFont("Helvetica-Oblique", 7.5)
+        c.setFillColorRGB(0.5, 0.5, 0.5); c.setFont("Helvetica-Oblique", 8.5)
         c.drawString(table_x + 6, cur_y2, "Nenhuma aferição registrada.")
-        cur_y2 -= 12
+        cur_y2 -= 14
 
     # Texto OMS
-    cur_y2 -= 12
-    c.setFillColorRGB(0.15, 0.15, 0.15); c.setFont("Helvetica-BoldOblique", 8)
-    oms_txt = "Seguem as classificações de acordo com as curvas de crescimento da OMS."
-    c.drawString(cx_r, cur_y2, oms_txt)
     cur_y2 -= 14
+    c.setFillColorRGB(0.15, 0.15, 0.15); c.setFont("Helvetica-BoldOblique", 9.5)
+    c.drawString(cx, cur_y2, "Seguem as classificações de acordo com as curvas de crescimento da OMS.")
+    cur_y2 -= 16
 
-    # Caixa aviso importante
+    # Caixa de aviso importante (estilo modelo)
     aviso_lines = [
         ("IMPORTANTE: Essas classificações utilizam somente dados antropométricos", True),
         ("(Peso, Altura e IMC), não levando em consideração outros parâmetros", False),
         ("necessários para diagnóstico nutricional completo (exames bioquímicos,", False),
-        ("hábitos alimentares). Não substituem o diagnóstico de profissional", False),
-        ("capacitado. São para fins de conhecimento e rastreamento nutricional.", False),
+        ("hábitos alimentares e exames clínicos). Por isso, esses dados não", False),
+        ("substituem o diagnóstico de um profissional capacitado e habilitado.", False),
     ]
-    av_total_h = av_lines_count * av_line_h + 14
+    av_total_h = av_lines_count * av_line_h + 16
     av_y_start = cur_y2
     av_y_base  = av_y_start - av_total_h
-    c.setFillColorRGB(1.0, 0.98, 0.87)
-    c.roundRect(cx_r, av_y_base - 2, cw_r, av_total_h, 4, fill=1, stroke=0)
-    c.setFillColorRGB(0.94, 0.75, 0.12)
-    c.rect(cx_r, av_y_base - 2, 4, av_total_h, fill=1, stroke=0)
-    ty = av_y_start - 9
+    c.setFillColorRGB(0.98, 0.97, 0.90)
+    c.roundRect(cx, av_y_base - 2, cw, av_total_h, 5, fill=1, stroke=0)
+    c.setFillColorRGB(0.38, 0.1, 0.58)
+    c.rect(cx, av_y_base - 2, 5, av_total_h, fill=1, stroke=0)
+    ty = av_y_start - 10
     for txt, bold in aviso_lines:
-        c.setFillColorRGB(0.35, 0.22, 0.03)
-        c.setFont("Helvetica-Bold" if bold else "Helvetica", 7.5)
-        c.drawString(cx_r + 8, ty, txt)
+        c.setFillColorRGB(0.2, 0.1, 0.1)
+        c.setFont("Helvetica-Bold" if bold else "Helvetica", 8.5)
+        c.drawString(cx + 10, ty, txt)
         ty -= av_line_h
 
-    draw_footer_panel(cx_r, cw_r, cy_bot_r, 4, 1)
+    draw_footer(cx, cw, cy_bot, 4)
     c.showPage()
 
     # ═════════════════════════════════════════════════════════
-    # PÁGS 5–8: Gráficos — um por página, ordem sequencial
-    #   Pág 5: Gráfico 1 — Peso x Idade
-    #   Pág 6: Gráfico 2 — Estatura x Idade
-    #   Pág 7: Gráfico 3 — IMC x Idade
-    #   Pág 8: Gráfico 4 — Peso x Estatura
+    # PÁGS 5–8 — GRÁFICOS (um por página, na ordem sequencial)
     # ═════════════════════════════════════════════════════════
     graficos_def = [
-        {"tipo": "peso_idade",    "titulo": "Grafico 1 — Peso x Idade",     "eixo_x": "meses",  "eixo_y": "peso",   "lx": "Idade (meses)", "ly": "Peso (kg)"},
-        {"tipo": "estatura_idade","titulo": "Grafico 2 — Estatura x Idade", "eixo_x": "meses",  "eixo_y": "altura", "lx": "Idade (meses)", "ly": "Estatura (cm)"},
-        {"tipo": "imc_idade",     "titulo": "Grafico 3 — IMC x Idade",      "eixo_x": "meses",  "eixo_y": "imc",    "lx": "Idade (meses)", "ly": "IMC (kg/m²)"},
-        {"tipo": "peso_estatura", "titulo": "Grafico 4 — Peso x Estatura",  "eixo_x": "altura", "eixo_y": "peso",   "lx": "Estatura (cm)", "ly": "Peso (kg)"},
+        {"tipo": "peso_idade",    "titulo": "Gráfico 1 — Peso x Idade",     "eixo_x": "meses",  "eixo_y": "peso",   "lx": "Idade (meses)", "ly": "Peso (kg)"},
+        {"tipo": "estatura_idade","titulo": "Gráfico 2 — Estatura x Idade", "eixo_x": "meses",  "eixo_y": "altura", "lx": "Idade (meses)", "ly": "Estatura (cm)"},
+        {"tipo": "imc_idade",     "titulo": "Gráfico 3 — IMC x Idade",      "eixo_x": "meses",  "eixo_y": "imc",    "lx": "Idade (meses)", "ly": "IMC (kg/m²)"},
+        {"tipo": "peso_estatura", "titulo": "Gráfico 4 — Peso x Estatura",  "eixo_x": "altura", "eixo_y": "peso",   "lx": "Estatura (cm)", "ly": "Peso (kg)"},
     ]
 
     if valid_meds_graficos and crianca.get("sexo"):
@@ -1924,17 +1912,17 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
 
         for pag_num, g in enumerate(graficos_def, start=5):
             draw_page_template(page_idx=3)
-            cx_p, cy_top_p, cw_p, cy_bot_p = page_content_bounds()
+            cx, cy_top, cw, cy_bot = page_content_bounds()
 
             ref_check = get_ref(crianca["sexo"], g["tipo"])
             valid_for = [m for m in valid_meds_graficos
                          if (m["altura"] if g["eixo_x"] == "altura" else m["meses"]) > 0]
 
             if not ref_check or not valid_for:
-                mid_y_g = (cy_top_p + cy_bot_p) / 2
+                mid_y_g = (cy_top + cy_bot) / 2
                 c.setFillColorRGB(0.5, 0.5, 0.5); c.setFont("Helvetica-Oblique", 9)
-                c.drawCentredString(cx_p + cw_p / 2, mid_y_g, "Dados insuficientes para este grafico.")
-                draw_footer(cx_p, cw_p, cy_bot_p, pag_num)
+                c.drawCentredString(cx + cw / 2, mid_y_g, "Dados insuficientes para este gráfico.")
+                draw_footer(cx, cw, cy_bot, pag_num)
                 c.showPage()
                 continue
 
@@ -1943,81 +1931,109 @@ def gerar_ficha_pdf(crianca, grupo_nome, turma_nome, medicoes, valid_meds_grafic
                 g["titulo"], g["eixo_x"], g["eixo_y"], g["lx"], g["ly"])
 
             if not png:
-                draw_footer(cx_p, cw_p, cy_bot_p, pag_num)
+                draw_footer(cx, cw, cy_bot, pag_num)
                 c.showPage()
                 continue
 
-            # ── Layout da página de gráfico ──
-            DIAG_FONT    = 8.0
-            BADGE_H      = 15
-            BADGE_GAP    = 5
-            TITULO_H     = 20
-            LINHA_H      = 7
-            SUBTIT_H     = 16
-            GAP_SUB_IMG  = 8
-            GAP_IMG_DIAG = 10
+            # ── Layout da página de gráfico (estilo do modelo) ──
+            BADGE_H      = 18
+            BADGE_GAP    = 4
+            TITULO_H     = 22
+            LINHA_H      = 8
+            SUBTIT_H     = 18
+            GAP_SUB_IMG  = 6
+            GAP_IMG_DIAG = 8
             DIAG_AREA_H  = len(diagnosticos) * (BADGE_H + BADGE_GAP)
-            FOOTER_H     = 16
+            FOOTER_H     = 18
+            DIAG_FONT    = 8.5
 
             header_h  = TITULO_H + LINHA_H + SUBTIT_H + GAP_SUB_IMG
             footer_h  = DIAG_AREA_H + GAP_IMG_DIAG + FOOTER_H
-            area_util = cy_top_p - cy_bot_p
-            img_h = max(area_util - header_h - footer_h, 120)
+            area_util = cy_top - cy_bot
+            img_h = max(area_util - header_h - footer_h, 130)
             bloco_h   = header_h + img_h + footer_h
             margem_v  = max(0, (area_util - bloco_h) / 2)
-            bloco_top = cy_top_p - margem_v
+            bloco_top = cy_top - margem_v
 
-            titulo_y = bloco_top - TITULO_H + 4
+            # Título em verde
+            titulo_y = bloco_top - TITULO_H + 6
             c.setFillColorRGB(0.27, 0.55, 0.09)
-            c.setFont("Helvetica-Bold", 11)
-            c.drawCentredString(cx_p + cw_p / 2, titulo_y, g["titulo"])
+            c.setFont("Helvetica-Bold", 13)
+            c.drawCentredString(cx + cw / 2, titulo_y, g["titulo"])
 
+            # Linha separadora
             linha_y = titulo_y - LINHA_H
             c.setStrokeColorRGB(0.42, 0.68, 0.15)
-            c.setLineWidth(1.2)
-            c.line(cx_p, linha_y, cx_p + cw_p, linha_y)
+            c.setLineWidth(1.5)
+            c.line(cx, linha_y, cx + cw, linha_y)
 
-            subtit_y = linha_y - SUBTIT_H + 4
+            # Subtítulo em roxo
+            subtit_y = linha_y - SUBTIT_H + 5
             c.setFillColorRGB(0.28, 0.07, 0.44)
             c.setFont("Helvetica-Bold", 9.5)
-            c.drawCentredString(cx_p + cw_p / 2, subtit_y, subtitulo_g)
+            c.drawCentredString(cx + cw / 2, subtit_y, subtitulo_g)
 
+            # Imagem do gráfico
             img_y = subtit_y - GAP_SUB_IMG - img_h
             img_buf = _io4.BytesIO(png)
-            c.drawImage(ImageReader(img_buf), cx_p, img_y,
-                        width=cw_p, height=img_h,
+            c.drawImage(ImageReader(img_buf), cx, img_y,
+                        width=cw, height=img_h,
                         preserveAspectRatio=False, mask="auto")
 
+            # Badges de diagnóstico — estilo modelo:
+            # Fundo colorido, texto: "Aferição N - dd/mm/yyyy  (x meses; y.ykg) → Status"
             diag_y = img_y - GAP_IMG_DIAG
             for diag_item in diagnosticos:
-                if diag_y < cy_bot_p + FOOTER_H + BADGE_H:
+                if diag_y < cy_bot + FOOTER_H + BADGE_H:
                     break
-                cor_rgb = hex_to_rgb(diag_item["cor_hex"])
-                cor_txt = (0.1, 0.1, 0.1) if diag_item["cor_hex"].upper() in ("#FFD700", "#FFC713") else (1, 1, 1)
+                cor_hex = diag_item["cor_hex"]
+                cor_rgb = hex_to_rgb(cor_hex)
+                # Texto escuro apenas para cores claras (amarelo)
+                is_light = cor_hex.upper() in ("#FFD700", "#FFC713", "#FFFF00")
+                cor_txt = (0.1, 0.1, 0.1) if is_light else (1, 1, 1)
+
+                # Fundo da badge (largura total)
                 c.setFillColorRGB(*cor_rgb)
-                c.roundRect(cx_p, diag_y - 2, cw_p, BADGE_H, 4, fill=1, stroke=0)
+                c.roundRect(cx, diag_y - 2, cw, BADGE_H, 4, fill=1, stroke=0)
+
+                # Label (parte descritiva) — fonte normal
                 label_txt = diag_item["label"]
                 status_txt = diag_item["status"]
                 c.setFillColorRGB(*cor_txt)
                 c.setFont("Helvetica", DIAG_FONT)
-                c.drawString(cx_p + 7, diag_y + 3, label_txt)
-                c.setFont("Helvetica-Bold", DIAG_FONT)
                 lbl_w_px = c.stringWidth(label_txt, "Helvetica", DIAG_FONT)
-                c.drawString(cx_p + 9 + lbl_w_px, diag_y + 3, f"→ {status_txt}")
+
+                # Seta + Status em negrito
+                arrow_txt = f"\u2192 "
+                full_left = label_txt
+                full_right = f"  \u2192  "
+
+                c.drawString(cx + 8, diag_y + 4, full_left)
+                c.setFont("Helvetica-Bold", DIAG_FONT)
+                c.drawString(cx + 8 + lbl_w_px, diag_y + 4, f"  \u2192  {status_txt}")
                 diag_y -= (BADGE_H + BADGE_GAP)
 
-            draw_footer(cx_p, cw_p, cy_bot_p, pag_num)
+            draw_footer(cx, cw, cy_bot, pag_num)
             c.showPage()
 
-    # ── PÁG 9: Registros da Avaliação Antropométrica ──
+    # ═════════════════════════════════════════════════════════
+    # PÁG 9 — REGISTROS DA AVALIAÇÃO ANTROPOMÉTRICA (template pág 4)
+    # ═════════════════════════════════════════════════════════
     draw_page_template(page_idx=4)
     c.showPage()
 
-    # ── PÁG 10: Materiais utilizados ──
-    draw_page_template(page_idx=5)
-    c.showPage()
+    # ═════════════════════════════════════════════════════════
+    # PÁGS 10–15 — 3 pares de Materiais + Resultados da atividade
+    # ═════════════════════════════════════════════════════════
+    for _act in range(3):
+        draw_page_template(page_idx=5)   # Materiais utilizados
+        c.showPage()
+        draw_page_template(page_idx=6)   # Resultados da atividade
+        c.showPage()
 
-    # ── PÁG 11: Resultados da atividade ──
+    # ═════════════════════════════════════════════════════════
+    # PÁG 16 — ÚLTIMA PÁGINA (encerramento — template pág 6)
+    # ═════════════════════════════════════════════════════════
     draw_page_template(page_idx=6)
     c.showPage()
 
